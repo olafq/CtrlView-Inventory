@@ -5,6 +5,7 @@ from typing import List
 from app.db.dependencies import get_db
 from app.modules.channels.schemas import ChannelOut
 from app.modules.channels.service import get_channels
+from app.db.models.channel import Channel
 
 router = APIRouter(prefix="/channels", tags=["Channels"])
 
