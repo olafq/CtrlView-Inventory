@@ -13,3 +13,17 @@ def list_channels(
     db: Session = Depends(get_db),
 ):
     return get_channels(db)
+@router.post("/seed")
+def seed_channels(db: Session = Depends(get_db)):
+    existing = {c.name for c in db.query(Channel).all()}
+
+    for name, ctype in [
+        ("MercadoLibre", "mercadolibre"),
+        ("Web", "web"),
+        ("POS", "pos"),
+    ]:
+        if name not in existing:
+            db.add(Channel(name=name, type=ctype))
+
+    db.commit()
+    return {"ok": True}
