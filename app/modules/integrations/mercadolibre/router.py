@@ -52,7 +52,7 @@ router = APIRouter(
 ML_CLIENT_ID = os.getenv("ML_CLIENT_ID")
 REDIRECT_URI = os.getenv(
     "ML_REDIRECT_URI",
-    "https://goqconsultant.com/ml/callback"
+    "https://oauth.goqconsultant.com/integrations/mercadolibre/oauth/callback"
 )
 
 @router.get("/oauth/start")
