@@ -56,20 +56,16 @@ def list_my_items(
     Lista los items del vendedor conectado.
     """
 
-    # 1️⃣ Token válido (refresh automático si hace falta)
+    # 1️⃣ Token válido
     try:
         token = get_valid_ml_access_token(db, channel_id)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
-
     # 2️⃣ Obtener user_id
     me = requests.get(
         "https://api.mercadolibre.com/users/me",
-        headers=headers,
+        params={"access_token": token},
         timeout=10,
     )
 
@@ -78,14 +74,14 @@ def list_my_items(
 
     user_id = me.json()["id"]
 
-    # 3️⃣ Buscar items
+    # 3️⃣ Buscar items (⚠️ token por query param)
     r = requests.get(
         f"https://api.mercadolibre.com/users/{user_id}/items/search",
         params={
+            "access_token": token,
             "limit": limit,
             "offset": offset,
         },
-        headers=headers,
         timeout=10,
     )
 
