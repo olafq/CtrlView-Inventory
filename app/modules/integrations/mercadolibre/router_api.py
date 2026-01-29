@@ -88,15 +88,19 @@ def list_my_items(
         "Authorization": f"Bearer {token}",
     }
 
+    SITE_ID = "MLA"  # Argentina
+
     r = requests.get(
-        f"{ML_API_BASE}/users/{user_id}/items/search",
+        f"{ML_API_BASE}/sites/{SITE_ID}/search",
         headers=headers,
         params={
+            "seller_id": user_id,
             "limit": limit,
             "offset": offset,
         },
         timeout=10,
     )
+
 
     if r.status_code != 200:
         raise HTTPException(status_code=r.status_code, detail=r.text)
