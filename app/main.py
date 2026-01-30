@@ -1,13 +1,11 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from sqlalchemy.orm import Session
 
-from app.core.config import is_dev
-from app.db.dependencies import get_db
-from app.db.models import Channel
+from app.db.session import engine, Base, SessionLocal
+from app.db.models.channel import Channel
 
 from app.modules.channels.router import router as channels_router
 from app.modules.imports.router import router as imports_router
@@ -18,27 +16,38 @@ from app.modules.integrations.mercadolibre.router_orders import router as ml_ord
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 🔹 STARTUP
-    db: Session = next(get_db())
+    # =========================
+    # STARTUP
+    # =========================
 
-    defaults = [
-        ("MercadoLibre", "mercadolibre"),
-        ("Web", "web"),
-        ("POS", "pos"),
-    ]
+    # 1️⃣ Crear todas las tablas si no existen
+    Base.metadata.create_all(bind=engine)
 
-    existing = {c.type for c in db.query(Channel).all()}
+    # 2️⃣ Seed mínimo e idempotente de channels
+    db = SessionLocal()
+    try:
+        defaults = [
+            ("MercadoLibre", "mercadolibre"),
+            ("Web", "web"),
+            ("POS", "pos"),
+        ]
 
-    for name, ctype in defaults:
-        if ctype not in existing:
-            db.add(Channel(name=name, type=ctype))
+        existing_types = {c.type for c in db.query(Channel).all()}
 
-    db.commit()
+        for name, ctype in defaults:
+            if ctype not in existing_types:
+                db.add(Channel(name=name, type=ctype))
+
+        db.commit()
+    finally:
+        db.close()
 
     yield  # 👉 la app corre
 
-    # 🔹 SHUTDOWN (opcional)
-    db.close()
+    # =========================
+    # SHUTDOWN
+    # =========================
+    # (no necesitamos nada acá por ahora)
 
 
 app = FastAPI(
@@ -53,27 +62,11 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/dev/bootstrap")
-def bootstrap(db: Session = Depends(get_db)):
-    if not is_dev():
-        raise HTTPException(status_code=403, detail="Not allowed")
-
-    existing = {c.name for c in db.query(Channel).all()}
-    for name, ctype in [
-        ("MercadoLibre", "mercadolibre"),
-        ("Web", "web"),
-        ("POS", "pos"),
-    ]:
-        if name not in existing:
-            db.add(Channel(name=name, type=ctype))
-
-    db.commit()
-    return {"ok": True}
-
-
+# =========================
+# Routers
+# =========================
 app.include_router(channels_router)
 app.include_router(imports_router)
 app.include_router(ml_oauth_router)
 app.include_router(ml_api_router)
 app.include_router(ml_orders_router)
-
