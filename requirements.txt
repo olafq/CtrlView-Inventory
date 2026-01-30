@@ -4,3 +4,4 @@ python-dotenv
 sqlalchemy
 psycopg[binary]
 requests
+psycopg2-binary
