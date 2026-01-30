@@ -13,6 +13,7 @@ from app.modules.channels.router import router as channels_router
 from app.modules.imports.router import router as imports_router
 from app.modules.integrations.mercadolibre.router_oauth import router as ml_oauth_router
 from app.modules.integrations.mercadolibre.router_api import router as ml_api_router
+from app.modules.integrations.mercadolibre.router_orders import router as ml_orders_router
 
 
 @asynccontextmanager
@@ -74,4 +75,5 @@ app.include_router(channels_router)
 app.include_router(imports_router)
 app.include_router(ml_oauth_router)
 app.include_router(ml_api_router)
+app.include_router(ml_orders_router)
 
