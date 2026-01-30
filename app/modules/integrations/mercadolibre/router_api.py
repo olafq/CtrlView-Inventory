@@ -112,3 +112,35 @@ def list_my_items(
         "paging": data.get("paging"),
         "results": data.get("results"),
     }
+@router.get("/items/{item_id}")
+def get_item_detail(
+    item_id: str,
+    channel_id: int = 1,
+    db: Session = Depends(get_db),
+):
+    """
+    Devuelve el detalle completo de un item de MercadoLibre.
+    Endpoint permitido incluso con apps nuevas.
+    """
+
+    # 1️⃣ Token válido (refresh automático)
+    token = get_valid_ml_access_token(db, channel_id)
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+    }
+
+    # 2️⃣ Llamada directa al item
+    r = requests.get(
+        f"https://api.mercadolibre.com/items/{item_id}",
+        headers=headers,
+        timeout=10,
+    )
+
+    if r.status_code != 200:
+        raise HTTPException(
+            status_code=r.status_code,
+            detail=r.text,
+        )
+
+    return r.json()
