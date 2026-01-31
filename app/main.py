@@ -20,8 +20,7 @@ async def lifespan(app: FastAPI):
     # STARTUP
     # =========================
 
-    # 1️⃣ Crear todas las tablas si no existen
-    Base.metadata.create_all(bind=engine)
+ 
 
     # 2️⃣ Seed mínimo e idempotente de channels
     db = SessionLocal()

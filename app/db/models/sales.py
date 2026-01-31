@@ -23,12 +23,17 @@ class Sale(Base):
         nullable=False,
     )
 
-    external_order_id = Column(String, nullable=True)
+    external_order_id = Column(String, nullable=True, index=True)
 
     total_amount = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(3), nullable=True)
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(
+    DateTime(timezone=True),
+    server_default=func.now(),
+    index=True,
+    )
+
 
     channel = relationship("Channel")
     items = relationship(
