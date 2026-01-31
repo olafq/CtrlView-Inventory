@@ -7,6 +7,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
+from app.db.models.sales import Sale
 
 from app.db.session import Base
 
