@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models.channel import Channel
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
-
+from app.db.models.product import Product
+from app.db.models.stock_movement import StockMovement
 
 # =========================
 # ENV
@@ -139,3 +140,27 @@ def get_valid_ml_access_token(db: Session, channel_id: int) -> str:
         auth = _refresh_access_token(db, auth)
 
     return auth.access_token
+
+
+# =========================
+# RECALCULO DE STOCK 
+# =========================
+def recalculate_product_stock(
+    db: Session,
+    product: Product,
+) -> None:
+    """
+    Recalcula el stock total del producto en base
+    a todos los movimientos de stock.
+    """
+
+    movements = (
+        db.query(StockMovement)
+        .filter(StockMovement.product_id == product.id)
+        .all()
+    )
+
+    # 👇 ventas = negativo, ajustes = positivo
+    product.stock_total = sum(m.quantity for m in movements)
+
+    db.commit()

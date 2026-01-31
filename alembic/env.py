@@ -17,6 +17,9 @@ if config.config_file_name is not None:
 
 # Importar Base y modelos
 from app.db.session import Base
+from app.db.models.channel import Channel
+from app.db.models.product import Product
+from app.db.models.external_item import ExternalItem
 from app.db import models  # importante para que Alembic registre los modelos
 
 target_metadata = Base.metadata
