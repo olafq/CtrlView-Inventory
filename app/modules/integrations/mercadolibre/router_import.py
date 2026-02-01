@@ -29,7 +29,7 @@ def import_products(
     if channel.type != "mercadolibre":
         raise HTTPException(status_code=400, detail="Channel is not MercadoLibre")
 
-    ml = get_ml_client(channel)
+    ml = get_ml_client(db, channel_id)
 
     # 2️⃣ Obtener seller_id
     me = ml.get("/me")
