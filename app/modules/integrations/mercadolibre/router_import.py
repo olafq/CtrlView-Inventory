@@ -29,64 +29,76 @@ def import_products(
     if channel.type != "mercadolibre":
         raise HTTPException(status_code=400, detail="Channel is not MercadoLibre")
 
+    # 2️⃣ Cliente ML (con token válido)
     ml = get_ml_client(db, channel_id)
 
-    # 2️⃣ Obtener seller_id
-    me = ml.get("/me")
+    # 3️⃣ Obtener seller
+    me = ml.get_current_user()
     seller_id = me["id"]
 
-    # 3️⃣ Obtener publicaciones del vendedor
-    search = ml.get(f"/users/{seller_id}/items/search?limit=100")
-    item_ids = search.get("results", [])
-
     imported = 0
+    offset = 0
+    limit = 50
 
-    for item_id in item_ids:
-        # 4️⃣ Obtener detalle del item
-        item = ml.get(f"/items/{item_id}")
-
-        sku = item.get("seller_custom_field") or item_id
-        title = item.get("title")
-        price = item.get("price", 0)
-        available_qty = item.get("available_quantity", 0)
-
-        # 5️⃣ PRODUCT (madre)
-        product = db.query(Product).filter(Product.sku == sku).first()
-        if not product:
-            product = Product(
-                sku=sku,
-                name=title,
-                stock_total=available_qty,
-                stock_reserved=0,
-                stock_available=available_qty,
-            )
-            db.add(product)
-            db.flush()
-
-        # 6️⃣ EXTERNAL ITEM (canal)
-        external = (
-            db.query(ExternalItem)
-            .filter(
-                ExternalItem.channel_id == channel.id,
-                ExternalItem.external_item_id == item_id,
-            )
-            .first()
+    # 4️⃣ Paginación real
+    while True:
+        search = ml.get_item_ids(
+            user_id=seller_id,
+            limit=limit,
+            offset=offset,
         )
 
-        if not external:
-            external = ExternalItem(
-                product_id=product.id,
-                channel_id=channel.id,
-                external_item_id=item_id,
-                external_sku=sku,
-                price=price,
-                stock=available_qty,
-                status=item.get("status"),
-                raw_payload=item,
-            )
-            db.add(external)
+        item_ids = search.get("results", [])
+        if not item_ids:
+            break
 
-        imported += 1
+        for item_id in item_ids:
+            item = ml.get_item_detail(item_id)
+
+            sku = item.get("seller_custom_field") or item_id
+            title = item.get("title")
+            price = item.get("price", 0)
+            available_qty = item.get("available_quantity", 0)
+
+            # PRODUCT (normalizado)
+            product = db.query(Product).filter(Product.sku == sku).first()
+            if not product:
+                product = Product(
+                    sku=sku,
+                    name=title,
+                    stock_total=available_qty,
+                    stock_reserved=0,
+                    stock_available=available_qty,
+                )
+                db.add(product)
+                db.flush()
+
+            # EXTERNAL ITEM (MercadoLibre)
+            external = (
+                db.query(ExternalItem)
+                .filter(
+                    ExternalItem.channel_id == channel.id,
+                    ExternalItem.external_item_id == item_id,
+                )
+                .first()
+            )
+
+            if not external:
+                external = ExternalItem(
+                    product_id=product.id,
+                    channel_id=channel.id,
+                    external_item_id=item_id,
+                    external_sku=sku,
+                    price=price,
+                    stock=available_qty,
+                    status=item.get("status"),
+                    raw_payload=item,
+                )
+                db.add(external)
+
+            imported += 1
+
+        offset += limit
 
     db.commit()
 
