@@ -119,3 +119,32 @@ def search_items_by_seller(
     )
     response.raise_for_status()
     return response.json()
+
+# =========================
+# SEARCH ITEMS BY SELLER (SITE SEARCH)
+# =========================
+def search_items_by_seller(
+     self,
+    site_id: str,
+    seller_id: int,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """
+    Devuelve publicaciones usando:
+    /sites/{site_id}/search?seller_id=
+    """
+    url = f"{self.BASE_URL}/sites/{site_id}/search"
+    params = {
+        "seller_id": seller_id,
+        "limit": limit,
+        "offset": offset,
+    }
+    response = requests.get(
+        url,
+        headers=self.headers,
+        params=params,
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
