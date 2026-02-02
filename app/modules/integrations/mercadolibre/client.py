@@ -90,3 +90,32 @@ def get_ml_client(db: Session, channel_id: int) -> MercadoLibreClient:
     access_token = get_valid_ml_access_token(db, channel.id)
 
     return MercadoLibreClient(access_token)
+# =========================================================
+# Buscar puclicaciones de MLA
+# =========================================================
+def search_items_by_seller(
+    self,
+    site_id: str,
+    seller_id: int,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """
+    Busca publicaciones del vendedor usando
+    /sites/{SITE_ID}/search?seller_id=
+    """
+    url = f"{self.BASE_URL}/sites/{site_id}/search"
+    params = {
+        "seller_id": seller_id,
+        "limit": limit,
+        "offset": offset,
+    }
+
+    response = requests.get(
+        url,
+        headers=self.headers,
+        params=params,
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
