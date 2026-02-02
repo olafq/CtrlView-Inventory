@@ -36,11 +36,7 @@ def import_products(
             detail="Channel is not MercadoLibre",
         )
 
-    if not channel.site_id:
-        raise HTTPException(
-            status_code=400,
-            detail="MercadoLibre channel missing site_id",
-        )
+    site_id = "MLA"  # hardcoded por ahora
 
     # =========================================================
     # 2️⃣ Cliente ML + seller_id
@@ -59,7 +55,7 @@ def import_products(
 
     while True:
         search = ml.search_items_by_seller(
-            site_id=channel.site_id,
+            site_id=site_id,
             seller_id=seller_id,
             limit=limit,
             offset=offset,
