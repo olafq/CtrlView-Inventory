@@ -16,72 +16,41 @@ def import_products(
     channel_id: int,
     db: Session = Depends(get_db),
 ):
-    """
-    Importa TODAS las publicaciones (items) del vendedor de MercadoLibre
-    usando /sites/{SITE_ID}/search?seller_id=
-    y las normaliza en Product + ExternalItem.
-    """
-
-    # =========================================================
-    # 1️⃣ Validar canal
-    # =========================================================
+    # 1. Canal
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
+    if not channel or channel.type != "mercadolibre":
+        raise HTTPException(400, "Invalid MercadoLibre channel")
 
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    if channel.type != "mercadolibre":
-        raise HTTPException(
-            status_code=400,
-            detail="Channel is not MercadoLibre",
-        )
-
-    site_id = "MLA"  # hardcoded por ahora
-
-    # =========================================================
-    # 2️⃣ Cliente ML + seller_id
-    # =========================================================
     ml = get_ml_client(db, channel_id)
 
+    # 2. Seller
     me = ml.get_current_user()
     seller_id = me["id"]
 
-    # =========================================================
-    # 3️⃣ Paginación segura
-    # =========================================================
     limit = 50
     offset = 0
     imported = 0
 
     while True:
-        search = ml.search_items_by_seller(
-            site_id=site_id,
+        page = ml.get_item_ids(
             seller_id=seller_id,
             limit=limit,
             offset=offset,
         )
 
-        results = search.get("results", [])
-
-        if not results:
+        item_ids = page.get("results", [])
+        if not item_ids:
             break
 
-        for item in results:
-            external_item_id = item["id"]
-            title = item.get("title")
+        for item_id in item_ids:
+            item = ml.get_item_detail(item_id)
+
+            sku = item.get("seller_custom_field") or item_id
+            name = item.get("title")
             price = item.get("price", 0)
-            available_qty = item.get("available_quantity", 0)
+            qty = item.get("available_quantity", 0)
             status = item.get("status")
 
-            # SKU: usamos seller_custom_field si existe
-            sku = (
-                item.get("seller_custom_field")
-                or external_item_id
-            )
-
-            # =================================================
-            # PRODUCT (madre)
-            # =================================================
             product = (
                 db.query(Product)
                 .filter(Product.sku == sku)
@@ -91,56 +60,46 @@ def import_products(
             if not product:
                 product = Product(
                     sku=sku,
-                    name=title,
-                    stock_total=available_qty,
+                    name=name,
+                    stock_total=qty,
                     stock_reserved=0,
-                    stock_available=available_qty,
+                    stock_available=qty,
                 )
                 db.add(product)
                 db.flush()
 
-            # =================================================
-            # EXTERNAL ITEM (canal)
-            # =================================================
-            external = (
+            exists = (
                 db.query(ExternalItem)
                 .filter(
                     ExternalItem.channel_id == channel.id,
-                    ExternalItem.external_item_id == external_item_id,
+                    ExternalItem.external_item_id == item_id,
                 )
                 .first()
             )
 
-            if not external:
-                external = ExternalItem(
-                    product_id=product.id,
-                    channel_id=channel.id,
-                    external_item_id=external_item_id,
-                    external_sku=sku,
-                    price=price,
-                    stock=available_qty,
-                    status=status,
-                    raw_payload=item,
+            if not exists:
+                db.add(
+                    ExternalItem(
+                        product_id=product.id,
+                        channel_id=channel.id,
+                        external_item_id=item_id,
+                        external_sku=sku,
+                        price=price,
+                        stock=qty,
+                        status=status,
+                        raw_payload=item,
+                    )
                 )
-                db.add(external)
-            else:
-                # Sync liviano (idempotente)
-                external.price = price
-                external.stock = available_qty
-                external.status = status
-                external.raw_payload = item
 
             imported += 1
 
         db.commit()
+        offset += len(item_ids)
 
-        offset += len(results)
-
-        if len(results) < limit:
+        if len(item_ids) < limit:
             break
 
     return {
-        "channel_id": channel_id,
         "seller_id": seller_id,
         "items_imported": imported,
     }
