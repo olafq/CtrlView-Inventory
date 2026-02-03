@@ -5,3 +5,4 @@ sqlalchemy
 psycopg[binary]
 requests
 psycopg2-binary
+alembic
