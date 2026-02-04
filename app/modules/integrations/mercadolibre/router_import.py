@@ -19,7 +19,7 @@ def import_products(
     # 1. Canal
     channel = db.query(Channel).filter(Channel.id == channel_id).first()
     if not channel or channel.type != "mercadolibre":
-        raise HTTPException(400, "Invalid MercadoLibre channel")
+        raise HTTPException(status_code=400, detail="Invalid MercadoLibre channel")
 
     ml = get_ml_client(db, channel_id)
 
@@ -51,6 +51,9 @@ def import_products(
             qty = item.get("available_quantity", 0)
             status = item.get("status")
 
+            # -------------------------
+            # Product
+            # -------------------------
             product = (
                 db.query(Product)
                 .filter(Product.sku == sku)
@@ -66,8 +69,11 @@ def import_products(
                     stock_available=qty,
                 )
                 db.add(product)
-                db.flush()
+                db.flush()  # asegura product.id
 
+            # -------------------------
+            # External Item
+            # -------------------------
             exists = (
                 db.query(ExternalItem)
                 .filter(
@@ -87,7 +93,6 @@ def import_products(
                         price=price,
                         stock=qty,
                         status=status,
-                        raw_payload=item,
                     )
                 )
 
