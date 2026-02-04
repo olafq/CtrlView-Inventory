@@ -19,35 +19,4 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
-    # agregar columnas que faltan
-    op.add_column(
-        "external_items",
-        sa.Column("external_item_id", sa.String(), nullable=False),
-    )
-
-    op.add_column(
-        "external_items",
-        sa.Column("external_sku", sa.String(), nullable=True),
-    )
-
-    op.add_column(
-        "external_items",
-        sa.Column("product_id", sa.Integer(), nullable=False),
-    )
-
-    # foreign key a products
-    op.create_foreign_key(
-        "fk_external_items_product",
-        "external_items",
-        "products",
-        ["product_id"],
-        ["id"],
-        ondelete="CASCADE",
-    )
-
-    # unique constraint canal + item
-    op.create_unique_constraint(
-        "uq_external_item_channel",
-        "external_items",
-        ["channel_id", "external_item_id"],
-    )
+    pass
