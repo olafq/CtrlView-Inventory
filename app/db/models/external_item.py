@@ -32,7 +32,6 @@ class ExternalItem(Base):
     )
 
     external_item_id = Column(String, nullable=False, index=True)
-    external_sku = Column(String, nullable=True)
 
     price = Column(Numeric(12, 2), nullable=True)
     stock = Column(Integer, nullable=False, default=0)

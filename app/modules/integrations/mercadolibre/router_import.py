@@ -89,7 +89,6 @@ def import_products(
                         product_id=product.id,
                         channel_id=channel.id,
                         external_item_id=item_id,
-                        external_sku=sku,
                         price=price,
                         stock=qty,
                         status=status,
