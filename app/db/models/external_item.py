@@ -19,9 +19,6 @@ class ExternalItem(Base):
 
     id = Column(Integer, primary_key=True)
 
-    # =========================
-    # Relaciones
-    # =========================
     product_id = Column(
         Integer,
         ForeignKey("products.id", ondelete="CASCADE"),
@@ -36,40 +33,17 @@ class ExternalItem(Base):
         index=True,
     )
 
-    # =========================
-    # Identidad externa
-    # =========================
     external_item_id = Column(String, nullable=False, index=True)
     external_sku = Column(String, nullable=True)
 
-    # =========================
-    # Estado por canal
-    # =========================
     price = Column(Numeric(12, 2), nullable=True)
     stock = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
     status = Column(String, nullable=True)
 
-    # =========================
-    # Metadata
-    # =========================
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-    # =========================
-    # Relaciones ORM
-    # =========================
-    product = relationship("Product", back_populates="external_items")
-    channel = relationship("Channel")
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
-        UniqueConstraint(
-            "channel_id",
-            "external_item_id",
-            name="uq_external_item_channel",
-        ),
+        UniqueConstraint("channel_id", "external_item_id", name="uq_external_item_channel"),
     )

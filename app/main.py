@@ -59,6 +59,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+Base.metadata.create_all(bind=engine)
+
 
 @app.get("/")
 def health():
