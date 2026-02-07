@@ -10,8 +10,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 from app.db.session import Base
-
-
+from sqlalchemy.orm import relationship
 class ExternalItem(Base):
     __tablename__ = "external_items"
 
@@ -32,6 +31,7 @@ class ExternalItem(Base):
     )
 
     external_item_id = Column(String, nullable=False, index=True)
+    external_sku = Column(String, nullable=True)
 
     price = Column(Numeric(12, 2), nullable=True)
     stock = Column(Integer, nullable=False, default=0)
@@ -44,6 +44,9 @@ class ExternalItem(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    product = relationship("Product", back_populates="external_items")
+    channel = relationship("Channel")
 
     __table_args__ = (
         UniqueConstraint(

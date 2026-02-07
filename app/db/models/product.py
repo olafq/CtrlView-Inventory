@@ -43,7 +43,11 @@ class Product(Base):
     # =========================
     # Relaciones
     # =========================
-   
+    external_items = relationship(
+        "ExternalItem",
+        back_populates="product",
+        cascade="all, delete-orphan",
+    )
 
     # =========================
     # Metadata
