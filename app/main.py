@@ -3,8 +3,9 @@ load_dotenv()
 
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+import subprocess
 
-from app.db.session import engine, Base, SessionLocal
+from app.db.session import SessionLocal
 from app.db.models.channel import Channel
 
 from app.modules.channels.router import router as channels_router
@@ -17,16 +18,24 @@ from app.modules.integrations.mercadolibre.router_import import (
 )
 
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # =========================
-    # STARTUP
+    # 1️⃣ Run Alembic migrations
     # =========================
+    try:
+        subprocess.run(
+            ["alembic", "upgrade", "head"],
+            check=True,
+        )
+        print("✅ Alembic migrations applied")
+    except Exception as e:
+        print("❌ Alembic migration failed:", e)
+        raise
 
- 
-
-    # 2️⃣ Seed mínimo e idempotente de channels
+    # =========================
+    # 2️⃣ Seed mínimo de channels
+    # =========================
     db = SessionLocal()
     try:
         defaults = [
@@ -45,12 +54,7 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
-    yield  # 👉 la app corre
-
-    # =========================
-    # SHUTDOWN
-    # =========================
-    # (no necesitamos nada acá por ahora)
+    yield  # 🚀 la app corre
 
 
 app = FastAPI(
@@ -58,8 +62,6 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
-Base.metadata.create_all(bind=engine)
 
 
 @app.get("/")
