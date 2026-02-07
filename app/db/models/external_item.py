@@ -8,9 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
 )
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
 from app.db.session import Base
 
 
@@ -42,8 +40,16 @@ class ExternalItem(Base):
     status = Column(String, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
     __table_args__ = (
-        UniqueConstraint("channel_id", "external_item_id", name="uq_external_item_channel"),
+        UniqueConstraint(
+            "channel_id",
+            "external_item_id",
+            name="uq_external_item_channel",
+        ),
     )
