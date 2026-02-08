@@ -20,19 +20,7 @@ from app.modules.integrations.mercadolibre.router_import import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # =========================
-    # 1️⃣ Run Alembic migrations
-    # =========================
-    try:
-        subprocess.run(
-            ["python", "-m", "alembic", "upgrade", "head"],
-            check=True,
-        )
-        print("✅ Alembic migrations applied")
-    except Exception as e:
-        print("❌ Alembic migration failed:", e)
-        raise
-
+    
     # =========================
     # 2️⃣ Seed mínimo de channels
     # =========================
