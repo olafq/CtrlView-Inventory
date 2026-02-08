@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     # =========================
     try:
         subprocess.run(
-            ["alembic", "upgrade", "head"],
+            ["python", "-m", "alembic", "upgrade", "head"],
             check=True,
         )
         print("✅ Alembic migrations applied")
