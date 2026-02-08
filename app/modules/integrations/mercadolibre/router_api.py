@@ -4,6 +4,8 @@ import requests
 
 from app.db.dependencies import get_db
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
+from app.db.models.product import Product
+from app.db.models.external_item import ExternalItem
 from app.modules.integrations.mercadolibre.service import (
     get_valid_ml_access_token,
 )
@@ -48,7 +50,7 @@ def get_my_ml_account(
 
 
 # =========================================================
-# LISTAR ITEMS DEL VENDEDOR
+# LISTAR ITEMS DEL VENDEDOR (API ML)
 # =========================================================
 @router.get("/items")
 def list_my_items(
@@ -58,17 +60,11 @@ def list_my_items(
     db: Session = Depends(get_db),
 ):
     """
-    Lista los items del vendedor conectado.
-    Usa:
-    - access_token válido
-    - ml_user_id guardado en DB
-    - Authorization Bearer (forma correcta)
+    Lista los items del vendedor conectado desde MercadoLibre.
     """
 
-    # 1️⃣ Token válido (con refresh automático)
     token = get_valid_ml_access_token(db, channel_id)
 
-    # 2️⃣ Obtener auth desde DB (ml_user_id YA GUARDADO)
     auth = (
         db.query(MercadoLibreAuth)
         .filter(MercadoLibreAuth.channel_id == channel_id)
@@ -81,26 +77,22 @@ def list_my_items(
             detail="MercadoLibre not connected for this channel",
         )
 
-    user_id = auth.ml_user_id
-
-    # 3️⃣ Llamada correcta según documentación oficial
     headers = {
         "Authorization": f"Bearer {token}",
     }
 
-    SITE_ID = "MLA"  # Argentina
+    SITE_ID = "MLA"
 
     r = requests.get(
         f"{ML_API_BASE}/sites/{SITE_ID}/search",
         headers=headers,
         params={
-            "seller_id": user_id,
+            "seller_id": auth.ml_user_id,
             "limit": limit,
             "offset": offset,
         },
         timeout=10,
     )
-
 
     if r.status_code != 200:
         raise HTTPException(status_code=r.status_code, detail=r.text)
@@ -108,10 +100,12 @@ def list_my_items(
     data = r.json()
 
     return {
-        "user_id": user_id,
+        "user_id": auth.ml_user_id,
         "paging": data.get("paging"),
         "results": data.get("results"),
     }
+
+
 @router.get("/items/{item_id}")
 def get_item_detail(
     item_id: str,
@@ -120,19 +114,16 @@ def get_item_detail(
 ):
     """
     Devuelve el detalle completo de un item de MercadoLibre.
-    Endpoint permitido incluso con apps nuevas.
     """
 
-    # 1️⃣ Token válido (refresh automático)
     token = get_valid_ml_access_token(db, channel_id)
 
     headers = {
         "Authorization": f"Bearer {token}",
     }
 
-    # 2️⃣ Llamada directa al item
     r = requests.get(
-        f"https://api.mercadolibre.com/items/{item_id}",
+        f"{ML_API_BASE}/items/{item_id}",
         headers=headers,
         timeout=10,
     )
@@ -144,3 +135,55 @@ def get_item_detail(
         )
 
     return r.json()
+
+
+# =========================================================
+# 📦 PRODUCTS (DB LOCAL)
+# =========================================================
+@router.get("/products")
+def list_products(db: Session = Depends(get_db)):
+    """
+    Lista todos los products guardados en la base local.
+    """
+
+    products = db.query(Product).all()
+
+    return [
+        {
+            "id": p.id,
+            "sku": p.sku,
+            "name": p.name,
+            "stock_total": p.stock_total,
+            "stock_available": p.stock_available,
+            "is_active": p.is_active,
+            "created_at": p.created_at,
+        }
+        for p in products
+    ]
+
+
+# =========================================================
+# 🔗 EXTERNAL ITEMS (DB LOCAL)
+# =========================================================
+@router.get("/external-items")
+def list_external_items(db: Session = Depends(get_db)):
+    """
+    Lista todos los external_items importados (vínculo product ↔ canal).
+    """
+
+    items = db.query(ExternalItem).all()
+
+    return [
+        {
+            "id": i.id,
+            "product_id": i.product_id,
+            "channel_id": i.channel_id,
+            "external_item_id": i.external_item_id,
+            "external_sku": i.external_sku,
+            "price": float(i.price) if i.price else None,
+            "stock": i.stock,
+            "status": i.status,
+            "created_at": i.created_at,
+        }
+        for i in items
+    ]
