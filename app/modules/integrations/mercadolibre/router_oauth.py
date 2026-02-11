@@ -22,7 +22,6 @@ def login(channel_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 @router.get("/callback")
 def callback(code: str | None = None, db: Session = Depends(get_db)):
     if not code:
@@ -30,10 +29,10 @@ def callback(code: str | None = None, db: Session = Depends(get_db)):
 
     try:
         rec = handle_callback(db, code=code)
-        return {
-            "ok": True,
-            "channel_id": rec.channel_id,
-            "ml_user_id": rec.ml_user_id,
-        }
+
+        return RedirectResponse(
+            "http://localhost:3000/settings?ml=connected"
+        )
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
