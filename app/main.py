@@ -4,6 +4,7 @@ load_dotenv()
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 import subprocess
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.db.session import SessionLocal
 from app.db.models.channel import Channel
@@ -49,6 +50,16 @@ app = FastAPI(
     title="Inventory Sync Engine",
     version="1.0.0",
     lifespan=lifespan,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://oauth.goqconsultant.com",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
