@@ -65,3 +65,17 @@ def status(channel_id: int, db: Session = Depends(get_db)):
         return {"connected": False}
 
     return {"connected": True}
+
+# =========================================================
+# DISCONECTED (Boton para desconectarse de ML)
+# =========================================================
+@router.post("/disconnect")
+def disconnect(channel_id: int, db: Session = Depends(get_db)):
+
+    db.query(MercadoLibreAuth).filter(
+        MercadoLibreAuth.channel_id == channel_id
+    ).delete()
+
+    db.commit()
+
+    return {"ok": True}
