@@ -167,16 +167,18 @@ def list_products(db: Session = Depends(get_db)):
 # =========================================================
 @router.get("/external-items")
 def list_external_items(db: Session = Depends(get_db)):
-    """
-    Lista todos los external_items importados (vínculo product ↔ canal).
-    """
 
-    items = db.query(ExternalItem).all()
+    items = (
+        db.query(ExternalItem)
+        .join(Product)
+        .all()
+    )
 
     return [
         {
             "id": i.id,
             "product_id": i.product_id,
+            "product_name": i.product.name,   # 👈 NUEVO
             "channel_id": i.channel_id,
             "external_item_id": i.external_item_id,
             "external_sku": i.external_sku,
