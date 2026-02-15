@@ -54,7 +54,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
+        "https://ctrlview-inventory-ui.vercel.app",
         "https://oauth.goqconsultant.com",
     ],
     allow_credentials=True,
