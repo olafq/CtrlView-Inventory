@@ -9,7 +9,6 @@ from app.db.models.product import Product
 from app.db.models.stock_movement import StockMovement
 from app.db.models.sales import Sale
 from app.db.models.external_item import ExternalItem  # si existe
-from app.modules.integrations.mercadolibre.client import get_ml_client
 from app.modules.integrations.mercadolibre.client import MercadoLibreClient
 # =========================
 # ENV
