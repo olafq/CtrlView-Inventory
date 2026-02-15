@@ -251,14 +251,5 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
 # FACTORY
 # =========================
 def get_ml_client(db: Session, channel_id: int) -> MercadoLibreClient:
-    channel = (
-        db.query(Channel)
-        .filter(Channel.id == channel_id)
-        .first()
-    )
-
-    if not channel or channel.type != "mercadolibre":
-        raise Exception("Invalid MercadoLibre channel")
-
-    access_token = get_valid_ml_access_token(db, channel.id)
+    access_token = get_valid_ml_access_token(db, channel_id)
     return MercadoLibreClient(access_token)
