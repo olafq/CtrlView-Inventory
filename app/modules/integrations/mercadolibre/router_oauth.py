@@ -40,7 +40,7 @@ def callback(code: str | None = None, db: Session = Depends(get_db)):
 
         # 🔥 Redirige automáticamente al frontend
         frontend_url = (
-            "http://localhost:3000/settings?ml=connected"
+            "https://ctrlview-inventory-ui.vercel.app/settings?ml=connected"
         )
 
         return RedirectResponse(frontend_url)
