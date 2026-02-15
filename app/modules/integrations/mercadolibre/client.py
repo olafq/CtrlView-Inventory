@@ -48,19 +48,29 @@ class MercadoLibreClient:
         return r.json()
 
 
+    # =========================
+    # ORDERS
+    # =========================
+    def get_orders(
+        self,
+        seller_id: int,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict:
+        url = f"{self.BASE_URL}/orders/search"
+        params = {
+            "seller": seller_id,
+            "limit": limit,
+            "offset": offset,
+            "sort": "date_desc",
+        }
 
-# =========================
-# List the Orders
-# =========================
+        r = requests.get(
+            url,
+            headers=self.headers,
+            params=params,
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
 
-def get_orders(self, seller_id: int, offset: int = 0, limit: int = 50) -> dict:
-    url = f"{self.BASE_URL}/orders/search"
-    params = {
-        "seller": seller_id,
-        "offset": offset,
-        "limit": limit,
-        "sort": "date_desc",
-    }
-    r = requests.get(url, headers=self.headers, params=params, timeout=15)
-    r.raise_for_status()
-    return r.json()
