@@ -7,7 +7,9 @@ from app.db.models.channel import Channel
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
 from app.db.models.product import Product
 from app.db.models.stock_movement import StockMovement
-
+from app.db.models.sales import Sale
+from app.db.models.external_item import ExternalItem  # si existe
+from app.modules.integrations.mercadolibre.client import get_ml_client
 # =========================
 # ENV
 # =========================
@@ -164,3 +166,83 @@ def recalculate_product_stock(
     product.stock_total = sum(m.quantity for m in movements)
 
     db.commit()
+
+# =========================
+# LISTADO DE STOCK 
+# =========================
+
+def sync_orders(db: Session, channel_id: int, limit: int = 50):
+    client = get_ml_client(db, channel_id)
+
+    auth = (
+        db.query(MercadoLibreAuth)
+        .filter(MercadoLibreAuth.channel_id == channel_id)
+        .first()
+    )
+
+    seller_id = auth.ml_user_id
+
+    data = client.get_orders(seller_id=seller_id, limit=limit)
+
+    results = data.get("results", [])
+    created_sales = 0
+
+    for order in results:
+        if order["status"] != "paid":
+            continue
+
+        external_order_id = str(order["id"])
+
+        existing = (
+            db.query(Sale)
+            .filter(Sale.external_order_id == external_order_id)
+            .first()
+        )
+
+        if existing:
+            continue
+
+        sale = Sale(
+            channel_id=channel_id,
+            external_order_id=external_order_id,
+            total_amount=order.get("total_amount"),
+            currency=order.get("currency_id"),
+        )
+
+        db.add(sale)
+        db.flush()
+
+        for item in order.get("order_items", []):
+            item_id = item["item"]["id"]
+            quantity = item["quantity"]
+
+            external_item = (
+                db.query(ExternalItem)
+                .filter(
+                    ExternalItem.external_item_id == item_id,
+                    ExternalItem.channel_id == channel_id,
+                )
+                .first()
+            )
+
+            if not external_item:
+                continue
+
+            movement = StockMovement(
+                product_id=external_item.product_id,
+                sale_id=sale.id,
+                quantity=-abs(quantity),
+                reason="sale",
+            )
+
+            db.add(movement)
+
+            recalculate_product_stock(db, external_item.product)
+
+        created_sales += 1
+
+    db.commit()
+
+    return {
+        "imported_orders": created_sales
+    }

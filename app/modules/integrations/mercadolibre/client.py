@@ -65,3 +65,18 @@ def get_ml_client(db: Session, channel_id: int) -> MercadoLibreClient:
 
     access_token = get_valid_ml_access_token(db, channel.id)
     return MercadoLibreClient(access_token)
+# =========================
+# List the Orders
+# =========================
+
+def get_orders(self, seller_id: int, offset: int = 0, limit: int = 50) -> dict:
+    url = f"{self.BASE_URL}/orders/search"
+    params = {
+        "seller": seller_id,
+        "offset": offset,
+        "limit": limit,
+        "sort": "date_desc",
+    }
+    r = requests.get(url, headers=self.headers, params=params, timeout=15)
+    r.raise_for_status()
+    return r.json()

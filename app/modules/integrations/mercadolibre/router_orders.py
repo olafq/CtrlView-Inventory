@@ -5,6 +5,7 @@ import requests
 from app.db.dependencies import get_db
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
 from app.modules.integrations.mercadolibre.service import get_valid_ml_access_token
+from app.modules.integrations.mercadolibre.service import sync_orders
 
 router = APIRouter(
     prefix="/integrations/mercadolibre",
@@ -73,3 +74,13 @@ def list_orders(
         "paging": data.get("paging"),
         "results": data.get("results"),
     }
+
+
+
+@router.post("/orders/sync")
+def sync_ml_orders(
+    channel_id: int = 1,
+    db: Session = Depends(get_db),
+):
+    result = sync_orders(db, channel_id=channel_id)
+    return result
