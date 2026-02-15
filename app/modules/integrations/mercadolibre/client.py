@@ -2,9 +2,7 @@ import requests
 from sqlalchemy.orm import Session
 
 from app.db.models import Channel
-from app.modules.integrations.mercadolibre.service import (
-    get_valid_ml_access_token,
-)
+
 
 
 class MercadoLibreClient:
@@ -50,21 +48,7 @@ class MercadoLibreClient:
         return r.json()
 
 
-# =========================
-# FACTORY
-# =========================
-def get_ml_client(db: Session, channel_id: int) -> MercadoLibreClient:
-    channel = (
-        db.query(Channel)
-        .filter(Channel.id == channel_id)
-        .first()
-    )
 
-    if not channel or channel.type != "mercadolibre":
-        raise Exception("Invalid MercadoLibre channel")
-
-    access_token = get_valid_ml_access_token(db, channel.id)
-    return MercadoLibreClient(access_token)
 # =========================
 # List the Orders
 # =========================
