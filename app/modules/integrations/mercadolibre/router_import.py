@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db.dependencies import get_db
 from app.db.models import Product, ExternalItem, Channel
-from app.modules.integrations.mercadolibre.client import get_ml_client
+from app.modules.integrations.mercadolibre.service import get_ml_client
 
 router = APIRouter(
     prefix="/integrations/mercadolibre",
