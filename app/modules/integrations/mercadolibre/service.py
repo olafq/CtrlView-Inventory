@@ -143,6 +143,58 @@ def get_valid_ml_access_token(db: Session, channel_id: int) -> str:
 
     return auth.access_token
 
+# =========================
+# ORDERS GENERADAS (PRUEBAS)
+# ========================= 
+import os
+
+def get_mock_orders_scenario():
+    """
+    Simula distintos escenarios de órdenes.
+    Cambiá el Escenario manualmente para probar casos.
+    """
+
+    scenario = os.getenv("ML_DEBUG_SCENARIO", "paid")
+
+    if scenario == "paid":
+        return {
+            "results": [
+                {
+                    "id": "TEST_ORDER_1",
+                    "status": "paid",
+                    "total_amount": 1000,
+                    "currency_id": "ARS",
+                    "date_last_updated": "2025-01-01T00:00:00Z",
+                    "order_items": [
+                        {
+                            "item": {"id": "MLA1967804304"},
+                            "quantity": 2,
+                        }
+                    ],
+                }
+            ]
+        }
+
+    if scenario == "cancelled":
+        return {
+            "results": [
+                {
+                    "id": "TEST_ORDER_1",
+                    "status": "cancelled",
+                    "total_amount": 1000,
+                    "currency_id": "ARS",
+                    "date_last_updated": "2025-01-02T00:00:00Z",
+                    "order_items": [
+                        {
+                            "item": {"id": "MLA1967804304"},
+                            "quantity": 2,
+                        }
+                    ],
+                }
+            ]
+        }
+
+    return {"results": []}
 
 # =========================
 # RECALCULO DE STOCK 
@@ -182,7 +234,11 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
     )
 
     seller_id = auth.ml_user_id
-    data = client.get_orders(seller_id=seller_id, limit=limit)
+    if os.getenv("ML_DEBUG") == "true":
+        print("⚠ DEBUG MODE ENABLED")
+        data = get_mock_orders_scenario()
+    else:
+        data = client.get_orders(seller_id=seller_id, limit=limit)
 
     results = data.get("results", [])
     processed = 0
@@ -200,7 +256,7 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
         )
 
         # =========================
-        # NUEVA VENTA
+        # NUEVA ORDEN
         # =========================
         if not existing:
 
@@ -220,19 +276,29 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
                 create_stock_movements(db, sale, order)
 
         # =========================
-        # VENTA EXISTENTE
+        # ORDEN EXISTENTE
         # =========================
         else:
+
+            # 🔒 Si no cambió nada → no hacemos nada
+            if existing.ml_last_updated == last_updated:
+                continue
 
             old_status = existing.status
 
             existing.status = new_status
             existing.ml_last_updated = last_updated
 
+            # 🟢 Caso 1: pasa a paid
             if old_status != "paid" and new_status == "paid":
                 create_stock_movements(db, existing, order)
 
-            if old_status == "paid" and new_status in ["cancelled", "refunded"]:
+            # 🔴 Caso 2: pasa de paid a cancelado o refund
+            elif old_status == "paid" and new_status in ["cancelled", "refunded"]:
+                revert_stock_movements(db, existing)
+
+            # 🟡 Caso 3: partial refund
+            elif old_status == "paid" and new_status == "partially_refunded":
                 revert_stock_movements(db, existing)
 
         processed += 1
@@ -253,6 +319,19 @@ def get_ml_client(db: Session, channel_id: int) -> MercadoLibreClient:
 # FUNCIONES AUXILIARES
 # =========================
 def create_stock_movements(db: Session, sale: Sale, order: dict):
+
+    existing_movements = (
+        db.query(StockMovement)
+        .filter(
+            StockMovement.sale_id == sale.id,
+            StockMovement.reason == "sale",
+        )
+        .count()
+    )
+
+    # 🔒 Ya existen movimientos → no duplicar
+    if existing_movements > 0:
+        return
 
     for item in order.get("order_items", []):
 
@@ -282,9 +361,23 @@ def create_stock_movements(db: Session, sale: Sale, order: dict):
         recalculate_product_stock(db, external_item.product)
 
 
+
 def revert_stock_movements(db: Session, sale: Sale):
 
-    movements = (
+    existing_refunds = (
+        db.query(StockMovement)
+        .filter(
+            StockMovement.sale_id == sale.id,
+            StockMovement.reason == "refund",
+        )
+        .count()
+    )
+
+    # 🔒 Si ya revertimos antes, no volver a revertir
+    if existing_refunds > 0:
+        return
+
+    sale_movements = (
         db.query(StockMovement)
         .filter(
             StockMovement.sale_id == sale.id,
@@ -293,7 +386,7 @@ def revert_stock_movements(db: Session, sale: Sale):
         .all()
     )
 
-    for m in movements:
+    for m in sale_movements:
 
         product = m.product
 
