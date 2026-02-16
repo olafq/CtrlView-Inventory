@@ -172,6 +172,7 @@ def recalculate_product_stock(
 # =========================
 
 def sync_orders(db: Session, channel_id: int, limit: int = 50):
+
     client = get_ml_client(db, channel_id)
 
     auth = (
@@ -181,17 +182,16 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
     )
 
     seller_id = auth.ml_user_id
-
     data = client.get_orders(seller_id=seller_id, limit=limit)
 
     results = data.get("results", [])
-    created_sales = 0
+    processed = 0
 
     for order in results:
-        if order["status"] != "paid":
-            continue
 
         external_order_id = str(order["id"])
+        new_status = order.get("status")
+        last_updated = order.get("date_last_updated")
 
         existing = (
             db.query(Sale)
@@ -199,56 +199,110 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
             .first()
         )
 
-        if existing:
-            continue
+        # =========================
+        # NUEVA VENTA
+        # =========================
+        if not existing:
 
-        sale = Sale(
-            channel_id=channel_id,
-            external_order_id=external_order_id,
-            total_amount=order.get("total_amount"),
-            currency=order.get("currency_id"),
-        )
-
-        db.add(sale)
-        db.flush()
-
-        for item in order.get("order_items", []):
-            item_id = item["item"]["id"]
-            quantity = item["quantity"]
-
-            external_item = (
-                db.query(ExternalItem)
-                .filter(
-                    ExternalItem.external_item_id == item_id,
-                    ExternalItem.channel_id == channel_id,
-                )
-                .first()
+            sale = Sale(
+                channel_id=channel_id,
+                external_order_id=external_order_id,
+                total_amount=order.get("total_amount"),
+                currency=order.get("currency_id"),
+                status=new_status,
+                ml_last_updated=last_updated,
             )
 
-            if not external_item:
-                continue
+            db.add(sale)
+            db.flush()
 
-            movement = StockMovement(
-                product_id=external_item.product_id,
-                sale_id=sale.id,
-                quantity=-abs(quantity),
-                reason="sale",
-            )
+            if new_status == "paid":
+                create_stock_movements(db, sale, order)
 
-            db.add(movement)
+        # =========================
+        # VENTA EXISTENTE
+        # =========================
+        else:
 
-            recalculate_product_stock(db, external_item.product)
+            old_status = existing.status
 
-        created_sales += 1
+            existing.status = new_status
+            existing.ml_last_updated = last_updated
+
+            if old_status != "paid" and new_status == "paid":
+                create_stock_movements(db, existing, order)
+
+            if old_status == "paid" and new_status in ["cancelled", "refunded"]:
+                revert_stock_movements(db, existing)
+
+        processed += 1
 
     db.commit()
 
     return {
-        "imported_orders": created_sales
+        "processed_orders": processed
     }
+
 # =========================
 # FACTORY
 # =========================
 def get_ml_client(db: Session, channel_id: int) -> MercadoLibreClient:
     access_token = get_valid_ml_access_token(db, channel_id)
     return MercadoLibreClient(access_token)
+# =========================
+# FUNCIONES AUXILIARES
+# =========================
+def create_stock_movements(db: Session, sale: Sale, order: dict):
+
+    for item in order.get("order_items", []):
+
+        item_id = item["item"]["id"]
+        quantity = item["quantity"]
+
+        external_item = (
+            db.query(ExternalItem)
+            .filter(
+                ExternalItem.external_item_id == item_id,
+                ExternalItem.channel_id == sale.channel_id,
+            )
+            .first()
+        )
+
+        if not external_item:
+            continue
+
+        movement = StockMovement(
+            product_id=external_item.product_id,
+            sale_id=sale.id,
+            quantity=-abs(quantity),
+            reason="sale",
+        )
+
+        db.add(movement)
+        recalculate_product_stock(db, external_item.product)
+
+
+def revert_stock_movements(db: Session, sale: Sale):
+
+    movements = (
+        db.query(StockMovement)
+        .filter(
+            StockMovement.sale_id == sale.id,
+            StockMovement.reason == "sale",
+        )
+        .all()
+    )
+
+    for m in movements:
+
+        product = m.product
+
+        revert = StockMovement(
+            product_id=product.id,
+            sale_id=sale.id,
+            quantity=abs(m.quantity),
+            reason="refund",
+        )
+
+        db.add(revert)
+        recalculate_product_stock(db, product)

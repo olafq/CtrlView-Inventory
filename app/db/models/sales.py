@@ -23,19 +23,31 @@ class Sale(Base):
         nullable=False,
     )
 
-    external_order_id = Column(String, nullable=True, index=True)
+    # 🔥 CLAVE: ahora obligatorio y único
+    external_order_id = Column(
+        String,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    # 🔥 NUEVO: estado ML
+    status = Column(String, nullable=True, index=True)
+
+    # 🔥 OPCIONAL PERO RECOMENDADO
+    ml_last_updated = Column(DateTime(timezone=True), nullable=True)
 
     total_amount = Column(Numeric(12, 2), nullable=True)
     currency = Column(String(3), nullable=True)
 
     created_at = Column(
-    DateTime(timezone=True),
-    server_default=func.now(),
-    index=True,
+        DateTime(timezone=True),
+        server_default=func.now(),
+        index=True,
     )
 
-
     channel = relationship("Channel")
+
     items = relationship(
         "StockMovement",
         back_populates="sale",
