@@ -188,8 +188,8 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
     created_sales = 0
 
     for order in results:
-        if order["status"] != "paid":
-            continue
+        #if order["status"] != "paid":
+         #   continue
 
         external_order_id = str(order["id"])
 
