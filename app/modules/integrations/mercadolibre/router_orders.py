@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc
 from typing import Optional
 import requests
 from datetime import datetime
@@ -8,6 +8,7 @@ from datetime import datetime
 from app.db.dependencies import get_db
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
 from app.db.models.sales import Sale
+from app.db.models.channel import Channel
 from app.modules.integrations.mercadolibre.service import (
     get_valid_ml_access_token,
     sync_orders,
@@ -22,7 +23,7 @@ ML_API_BASE = "https://api.mercadolibre.com"
 
 
 # ==========================================================
-# 🟢 LIST ORDERS (ERP SOURCE OF TRUTH - PRO VERSION)
+# 🟢 LIST ORDERS (ERP SOURCE OF TRUTH - PRO)
 # ==========================================================
 @router.get("/orders")
 def list_local_orders(
@@ -36,6 +37,7 @@ def list_local_orders(
 ):
     """
     Devuelve órdenes almacenadas en tu sistema.
+
     Soporta:
     - filtros por status
     - rango de fechas
@@ -43,7 +45,11 @@ def list_local_orders(
     - orden por created_at DESC
     """
 
-    query = db.query(Sale).filter(Sale.channel_id == channel_id)
+    query = (
+        db.query(Sale, Channel)
+        .join(Channel, Sale.channel_id == Channel.id)
+        .filter(Sale.channel_id == channel_id)
+    )
 
     # ----------------------------
     # Filtro por status
@@ -65,7 +71,7 @@ def list_local_orders(
     # ----------------------------
     # Orden + Paginación
     # ----------------------------
-    sales = (
+    results = (
         query.order_by(desc(Sale.created_at))
         .offset(offset)
         .limit(limit)
@@ -80,18 +86,17 @@ def list_local_orders(
         },
         "data": [
             {
-                "id": s.id,
-                "external_order_id": s.external_order_id,
-                "channel": s.channel.type if hasattr(s.channel, "type") else "mercadolibre",
-                "status": s.status,
-                "total_amount": float(s.total_amount or 0),
-                "currency": s.currency,
-                "created_at": s.created_at,
-                "ml_last_updated": s.ml_last_updated,
-                "channel": s.channel.type if s.channel else "mercadolibre",
-                "channel_name": s.channel.name if s.channel else "MercadoLibre",
+                "id": sale.id,
+                "external_order_id": sale.external_order_id,
+                "status": sale.status,
+                "total_amount": float(sale.total_amount or 0),
+                "currency": sale.currency,
+                "created_at": sale.created_at,
+                "ml_last_updated": sale.ml_last_updated,
+                "channel": channel.type,
+                "channel_name": channel.name,
             }
-            for s in sales
+            for sale, channel in results
         ],
     }
 
