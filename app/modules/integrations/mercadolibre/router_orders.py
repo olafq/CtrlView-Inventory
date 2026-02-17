@@ -88,6 +88,8 @@ def list_local_orders(
                 "currency": s.currency,
                 "created_at": s.created_at,
                 "ml_last_updated": s.ml_last_updated,
+                "channel": s.channel.type if s.channel else "mercadolibre",
+                "channel_name": s.channel.name if s.channel else "MercadoLibre",
             }
             for s in sales
         ],
