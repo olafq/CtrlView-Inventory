@@ -1,9 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
-from typing import Optional
 import requests
-from datetime import datetime
 
 from app.db.dependencies import get_db
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
@@ -22,91 +19,56 @@ ML_API_BASE = "https://api.mercadolibre.com"
 
 
 # ==========================================================
-# 🟢 LIST ORDERS (ERP SOURCE OF TRUTH - PRO VERSION)
+# 🟢 LIST ORDERS DESDE TU BASE (ERP SOURCE OF TRUTH)
 # ==========================================================
 @router.get("/orders")
 def list_local_orders(
-    channel_id: int = Query(...),
-    status: Optional[str] = None,
-    date_from: Optional[datetime] = None,
-    date_to: Optional[datetime] = None,
-    offset: int = 0,
-    limit: int = 50,
+    channel_id: int = 1,
     db: Session = Depends(get_db),
 ):
     """
-    Devuelve órdenes almacenadas en tu sistema.
-    Soporta:
-    - filtros por status
-    - rango de fechas
-    - paginación
-    - orden por created_at DESC
+    Devuelve órdenes almacenadas en tu sistema (tabla sales).
+    Esta es la fuente real para la UI.
     """
 
-    query = db.query(Sale).filter(Sale.channel_id == channel_id)
-
-    # ----------------------------
-    # Filtro por status
-    # ----------------------------
-    if status:
-        query = query.filter(Sale.status == status)
-
-    # ----------------------------
-    # Filtro por fecha
-    # ----------------------------
-    if date_from:
-        query = query.filter(Sale.created_at >= date_from)
-
-    if date_to:
-        query = query.filter(Sale.created_at <= date_to)
-
-    total_count = query.count()
-
-    # ----------------------------
-    # Orden + Paginación
-    # ----------------------------
     sales = (
-        query.order_by(desc(Sale.created_at))
-        .offset(offset)
-        .limit(limit)
+        db.query(Sale)
+        .filter(Sale.channel_id == channel_id)
+        .order_by(Sale.id.desc())
         .all()
     )
 
-    return {
-        "meta": {
-            "total": total_count,
-            "offset": offset,
-            "limit": limit,
-        },
-        "data": [
-            {
-                "id": s.id,
-                "external_order_id": s.external_order_id,
-                "channel": s.channel.type if hasattr(s.channel, "type") else "mercadolibre",
-                "status": s.status,
-                "total_amount": float(s.total_amount or 0),
-                "currency": s.currency,
-                "created_at": s.created_at,
-                "ml_last_updated": s.ml_last_updated,
-            }
-            for s in sales
-        ],
-    }
+    return [
+        {
+            "id": s.id,
+            "external_order_id": s.external_order_id,
+            "status": s.status,
+            "total_amount": float(s.total_amount or 0),
+            "currency": s.currency,
+            "created_at": s.created_at,
+            "ml_last_updated": s.ml_last_updated,
+
+            # 👇 NUEVO
+            "channel": s.channel.type if s.channel else None,
+            "channel_name": s.channel.name if s.channel else None,
+        }
+        for s in sales
+    ]
 
 
 # ==========================================================
-# 🔵 RAW ORDERS (DEBUG ONLY)
+# 🔵 RAW ORDERS DIRECTO DESDE MERCADO LIBRE (DEBUG)
 # ==========================================================
 @router.get("/orders/raw")
 def list_ml_orders_raw(
-    channel_id: int,
+    channel_id: int = 1,
     offset: int = 0,
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
     """
-    Trae órdenes directamente desde Mercado Libre.
-    SOLO debug.
+    Trae órdenes directamente desde ML.
+    Solo para debug / comparación.
     """
 
     token = get_valid_ml_access_token(db, channel_id)
@@ -123,10 +85,14 @@ def list_ml_orders_raw(
             detail="MercadoLibre not connected for this channel",
         )
 
-    headers = {"Authorization": f"Bearer {token}"}
+    seller_id = auth.ml_user_id
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+    }
 
     params = {
-        "seller": auth.ml_user_id,
+        "seller": seller_id,
         "offset": offset,
         "limit": limit,
         "sort": "date_desc",
@@ -142,27 +108,28 @@ def list_ml_orders_raw(
     if r.status_code != 200:
         raise HTTPException(status_code=r.status_code, detail=r.text)
 
-    return r.json()
+    data = r.json()
+
+    return {
+        "seller_id": seller_id,
+        "paging": data.get("paging"),
+        "results": data.get("results"),
+    }
 
 
 # ==========================================================
-# 🔁 MANUAL SYNC (ENTERPRISE READY)
+# 🔁 SYNC ORDERS (ML → TU BASE)
 # ==========================================================
 @router.post("/orders/sync")
 def sync_ml_orders(
-    channel_id: int,
+    channel_id: int = 1,
     db: Session = Depends(get_db),
 ):
     """
-    Sincronización manual.
-    En arquitectura profesional,
-    esto es fallback, no mecanismo principal.
+    Sincroniza órdenes de ML a tu base.
+    Aplica lógica de stock automática.
     """
 
     result = sync_orders(db, channel_id=channel_id)
+    return result
 
-    return {
-        "message": "Manual sync completed",
-        "processed_orders": result.get("processed_orders", 0),
-        "timestamp": datetime.utcnow(),
-    }
