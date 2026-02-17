@@ -128,3 +128,16 @@ def sync_ml_orders(
 
     result = sync_orders(db, channel_id=channel_id)
     return result
+@router.get("/sales")
+def list_sales(
+    channel_id: int,
+    db: Session = Depends(get_db),
+):
+    sales = (
+        db.query(Sale)
+        .filter(Sale.channel_id == channel_id)
+        .order_by(Sale.created_at.desc())
+        .all()
+    )
+
+    return sales
