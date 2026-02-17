@@ -146,7 +146,6 @@ def get_valid_ml_access_token(db: Session, channel_id: int) -> str:
 # =========================
 # ORDERS GENERADAS (PRUEBAS)
 # ========================= 
-import os
 
 def get_mock_orders_scenario():
     """
@@ -234,7 +233,9 @@ def sync_orders(db: Session, channel_id: int, limit: int = 50):
     )
 
     seller_id = auth.ml_user_id
-    if os.getenv("ML_DEBUG") == "true":
+    debug_mode = os.getenv("ML_DEBUG_MODE", "false").lower() == "true"
+
+    if debug_mode:
         print("⚠ DEBUG MODE ENABLED")
         data = get_mock_orders_scenario()
     else:
