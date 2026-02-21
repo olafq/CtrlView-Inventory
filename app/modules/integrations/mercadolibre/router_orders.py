@@ -29,6 +29,7 @@ ML_API_BASE = "https://api.mercadolibre.com"
 def list_local_orders(
     channel_id: int = Query(...),
     status: Optional[str] = None,
+    order_id: Optional[str] = None,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
     offset: int = 0,
@@ -36,13 +37,13 @@ def list_local_orders(
     db: Session = Depends(get_db),
 ):
     """
-    Devuelve órdenes almacenadas en tu sistema.
+    Orders PRO endpoint
 
     Soporta:
-    - filtros por status
-    - rango de fechas
-    - paginación
-    - orden por created_at DESC
+    - status
+    - order_id search
+    - date range
+    - pagination
     """
 
     query = (
@@ -51,15 +52,17 @@ def list_local_orders(
         .filter(Sale.channel_id == channel_id)
     )
 
-    # ----------------------------
-    # Filtro por status
-    # ----------------------------
+    # 🔹 Status filter
     if status:
         query = query.filter(Sale.status == status)
 
-    # ----------------------------
-    # Filtro por fecha
-    # ----------------------------
+    # 🔹 Search by Order ID
+    if order_id:
+        query = query.filter(
+            Sale.external_order_id.ilike(f"%{order_id}%")
+        )
+
+    # 🔹 Date filters
     if date_from:
         query = query.filter(Sale.created_at >= date_from)
 
@@ -68,9 +71,6 @@ def list_local_orders(
 
     total_count = query.count()
 
-    # ----------------------------
-    # Orden + Paginación
-    # ----------------------------
     results = (
         query.order_by(desc(Sale.created_at))
         .offset(offset)
