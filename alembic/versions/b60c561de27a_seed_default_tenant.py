@@ -1,9 +1,21 @@
-from alembic import op
+"""seed default tenant
 
-revision = 'b60c561de27a'
-down_revision = '49ab6a3e1c39'
-branch_labels = None
-depends_on = None
+Revision ID: b60c561de27a
+Revises: 49ab6a3e1c39
+Create Date: 2026-02-25 19:25:58.684708
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = 'b60c561de27a'
+down_revision: Union[str, Sequence[str], None] = '49ab6a3e1c39'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade():
     op.execute("""
