@@ -19,8 +19,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade():
     op.execute("""
-        INSERT INTO tenants (id, name, is_active)
-        VALUES (1, 'Default Tenant', true)
+        INSERT INTO tenants (id, name, slug, is_active)
+        VALUES (1, 'default', 'default', true)
+        ON CONFLICT (id) DO NOTHING
     """)
 
 def downgrade():
