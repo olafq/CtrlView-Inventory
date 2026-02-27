@@ -19,20 +19,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
-    # 1️⃣ Agregar columna como nullable primero
+    # 1️⃣ Agregar columna nullable
     op.add_column(
         "tenants",
         sa.Column("slug", sa.String(), nullable=True)
     )
 
-    # 2️⃣ Poblar slug para tenants existentes
+    # 2️⃣ Poblar
     op.execute("""
         UPDATE tenants
         SET slug = 'default'
         WHERE slug IS NULL
     """)
 
-    # 3️⃣ Hacerla NOT NULL
+    # 3️⃣ Hacer NOT NULL
     op.alter_column(
         "tenants",
         "slug",
@@ -40,21 +40,20 @@ def upgrade():
         nullable=False
     )
 
-    # 4️⃣ Crear índice único
-    op.create_index(
-        "ix_tenants_slug",
-        "tenants",
-        ["slug"],
-        unique=True
-    )
-
-    op.create_index(
-        "ix_tenants_slug",
-        "tenants",
-        ["slug"],
-        unique=True
-    )
-
+    # 4️⃣ Crear índice solo si no existe
+    op.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_indexes
+                WHERE indexname = 'ix_tenants_slug'
+            ) THEN
+                CREATE UNIQUE INDEX ix_tenants_slug
+                ON tenants (slug);
+            END IF;
+        END
+        $$;
+    """)
 
 def downgrade():
     op.drop_index("ix_tenants_slug", table_name="tenants")
