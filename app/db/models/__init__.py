@@ -6,8 +6,13 @@ from app.db.models.mercadolibre_auth import MercadoLibreAuth
 from .product import Product
 from .sales import Sale
 from .stock_movement import StockMovement
+from .tenant import Tenant
 __all__ = [
     "Channel",
     "ExternalItem",
     "CatalogImportRun",
+    "Product",
+    "Sale",
+    "StockMovement",
+    "Tenant",
 ]
