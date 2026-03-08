@@ -9,6 +9,8 @@ from app.db.dependencies import get_db
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
 from app.db.models.sales import Sale
 from app.db.models.channel import Channel
+from app.core.tenant import get_current_tenant
+from app.db.models import Tenant
 from app.modules.integrations.mercadolibre.service import (
     get_valid_ml_access_token,
     sync_orders,
@@ -34,6 +36,7 @@ def list_local_orders(
     date_to: Optional[datetime] = None,
     offset: int = 0,
     limit: int = 50,
+    tenant: Tenant = Depends(get_current_tenant),
     db: Session = Depends(get_db),
 ):
     """
@@ -46,10 +49,9 @@ def list_local_orders(
     - pagination
     """
 
-    query = (
-        db.query(Sale, Channel)
-        .join(Channel, Sale.channel_id == Channel.id)
-        .filter(Sale.channel_id == channel_id)
+    query = db.query(Sale).filter(
+        Sale.channel_id == channel_id,
+        Sale.tenant_id == tenant.id,
     )
 
     # 🔹 Status filter
@@ -158,6 +160,7 @@ def list_ml_orders_raw(
 @router.post("/orders/sync")
 def sync_ml_orders(
     channel_id: int,
+    tenant: Tenant = Depends(get_current_tenant),
     db: Session = Depends(get_db),
 ):
     """
@@ -165,8 +168,8 @@ def sync_ml_orders(
     En arquitectura profesional,
     esto es fallback, no mecanismo principal.
     """
-
-    result = sync_orders(db, channel_id=channel_id)
+   
+    result = sync_orders(db, channel_id=channel_id, tenant_id=tenant.id)
 
     return {
         "message": "Manual sync completed",
