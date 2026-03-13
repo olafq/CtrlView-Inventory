@@ -10,11 +10,17 @@ class MercadoLibreAuth(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     channel_id = Column(
         Integer,
         ForeignKey("channels.id", ondelete="CASCADE"),
         nullable=False,
-        unique=True
     )
 
     ml_user_id = Column(Integer, nullable=False)
@@ -35,8 +41,9 @@ class MercadoLibreAuth(Base):
         nullable=False
     )
 
+    tenant = relationship("Tenant")
     channel = relationship("Channel")
 
     __table_args__ = (
-        UniqueConstraint("channel_id", name="uq_ml_auth_channel"),
+        UniqueConstraint("tenant_id", "channel_id", name="uq_ml_auth_tenant_channel"),
     )

@@ -9,12 +9,22 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.sql import func
-from app.db.session import Base
 from sqlalchemy.orm import relationship
+
+from app.db.session import Base
+
+
 class ExternalItem(Base):
     __tablename__ = "external_items"
 
     id = Column(Integer, primary_key=True)
+
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
 
     product_id = Column(
         Integer,
@@ -45,13 +55,15 @@ class ExternalItem(Base):
         onupdate=func.now(),
     )
 
+    tenant = relationship("Tenant")
     product = relationship("Product", back_populates="external_items")
     channel = relationship("Channel")
 
     __table_args__ = (
         UniqueConstraint(
+            "tenant_id",
             "channel_id",
             "external_item_id",
-            name="uq_external_item_channel",
+            name="uq_external_item_tenant_channel_item",
         ),
     )

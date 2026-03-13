@@ -5,6 +5,8 @@ from sqlalchemy import (
     Boolean,
     Numeric,
     DateTime,
+    ForeignKey,
+    UniqueConstraint,
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -17,10 +19,17 @@ class Product(Base):
 
     id = Column(Integer, primary_key=True)
 
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     # =========================
     # Identidad del producto
     # =========================
-    sku = Column(String, unique=True, nullable=False, index=True)
+    sku = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
 
@@ -30,7 +39,7 @@ class Product(Base):
     cost = Column(Numeric(12, 2), nullable=True)
 
     # =========================
-    # Stock (fuente de verdad)
+    # Stock
     # =========================
     stock_total = Column(Integer, nullable=False, default=0)
     stock_reserved = Column(Integer, nullable=False, default=0)
@@ -43,6 +52,8 @@ class Product(Base):
     # =========================
     # Relaciones
     # =========================
+    tenant = relationship("Tenant")
+
     external_items = relationship(
         "ExternalItem",
         back_populates="product",
@@ -59,14 +70,9 @@ class Product(Base):
         onupdate=func.now(),
     )
 
-    # =========================
-    # Lógica de dominio
-    # =========================
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "sku", name="uq_products_tenant_sku"),
+    )
+
     def recalculate_available_stock(self):
-        """
-        Recalcula el stock disponible en base al total y reservado.
-        """
-        self.stock_available = max(
-            0,
-            self.stock_total - self.stock_reserved
-        )
+        self.stock_available = max(0, self.stock_total - self.stock_reserved)
