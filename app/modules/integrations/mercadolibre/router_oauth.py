@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db.dependencies import get_db
 from app.db.models.mercadolibre_auth import MercadoLibreAuth
-from app.modules.integrations.xmercadolibre.service import (
+from app.modules.integrations.mercadolibre.service import (
     build_login_url,
     handle_callback,
     parse_oauth_state,
