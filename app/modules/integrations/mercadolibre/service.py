@@ -1,5 +1,7 @@
 import os
 import requests
+import  json
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -45,28 +47,49 @@ def _is_token_expired(expires_at: datetime, buffer_minutes: int = 5) -> bool:
 def build_login_url(db: Session, channel_id: int, tenant_id: int) -> str:
     """
     Devuelve URL de login para MercadoLibre.
-    En SaaS: el tenant se identifica por subdominio, pero acá lo recibimos
-    para dejar el flujo 100% explícito / auditable.
+    Usa state para transportar tenant_id + channel_id en el callback.
     """
     _require_env()
 
-    channel = db.query(Channel).filter(Channel.id == channel_id).first()
+    channel = (
+        db.query(Channel)
+        .filter(
+            Channel.id == channel_id,
+            Channel.tenant_id == tenant_id,
+        )
+        .first()
+    )
     if not channel:
-        raise Exception("Channel not found")
+        raise Exception("Channel not found for this tenant")
 
-    # Podés pasar tenant_id como state para seguridad (CSRF) y routing.
-    # Si tu router ya maneja state, mejor.
+    state_payload = {
+        "tenant_id": tenant_id,
+        "channel_id": channel_id,
+    }
+
     params = {
         "response_type": "code",
         "client_id": ML_CLIENT_ID,
         "redirect_uri": ML_REDIRECT_URI,
-        "state": str(tenant_id),
+        "state": json.dumps(state_payload),
     }
 
-    query = "&".join([f"{k}={v}" for k, v in params.items()])
+    query = urllib.parse.urlencode(params)
     return f"{AUTH_URL}?{query}"
 
+def parse_oauth_state(state: str) -> Dict[str, int]:
+    try:
+        data = json.loads(state)
 
+        tenant_id = int(data["tenant_id"])
+        channel_id = int(data["channel_id"])
+
+        return {
+            "tenant_id": tenant_id,
+            "channel_id": channel_id,
+        }
+    except Exception:
+        raise Exception("Invalid OAuth state")
 def handle_callback(db: Session, code: str, channel_id: int, tenant_id: int) -> MercadoLibreAuth:
     """
     Intercambia code por tokens y guarda auth POR TENANT.
