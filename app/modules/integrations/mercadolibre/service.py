@@ -3,6 +3,7 @@ import requests
 import  json
 import urllib.parse
 from datetime import datetime, timedelta
+import base64
 from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -45,12 +46,9 @@ def _is_token_expired(expires_at: datetime, buffer_minutes: int = 5) -> bool:
 # OAUTH LOGIN (tenant-safe)
 # =========================
 def build_login_url(db: Session, channel_id: int, tenant_id: int) -> str:
-    """
-    Devuelve URL de login para MercadoLibre.
-    Usa state para transportar tenant_id + channel_id en el callback.
-    """
     _require_env()
 
+    # Validación de que el canal existe para ese tenant
     channel = (
         db.query(Channel)
         .filter(
@@ -66,12 +64,17 @@ def build_login_url(db: Session, channel_id: int, tenant_id: int) -> str:
         "tenant_id": tenant_id,
         "channel_id": channel_id,
     }
+    
+    # 1. Convertimos el JSON a un string
+    state_json = json.dumps(state_payload)
+    # 2. Lo codificamos en Base64 seguro para URLs
+    state_b64 = base64.urlsafe_b64encode(state_json.encode()).decode()
 
     params = {
         "response_type": "code",
         "client_id": ML_CLIENT_ID,
         "redirect_uri": ML_REDIRECT_URI,
-        "state": json.dumps(state_payload),
+        "state": state_b64,  # <--- AHORA ES UN STRING PLANO SEGURO
     }
 
     query = urllib.parse.urlencode(params)
@@ -79,17 +82,18 @@ def build_login_url(db: Session, channel_id: int, tenant_id: int) -> str:
 
 def parse_oauth_state(state: str) -> Dict[str, int]:
     try:
-        data = json.loads(state)
-
-        tenant_id = int(data["tenant_id"])
-        channel_id = int(data["channel_id"])
+        # 1. Decodificamos el Base64 que nos devuelve Mercado Libre
+        decoded_bytes = base64.urlsafe_b64decode(state.encode())
+        # 2. Convertimos el string de vuelta a JSON
+        data = json.loads(decoded_bytes.decode())
 
         return {
-            "tenant_id": tenant_id,
-            "channel_id": channel_id,
+            "tenant_id": int(data["tenant_id"]),
+            "channel_id": int(data["channel_id"]),
         }
     except Exception:
-        raise Exception("Invalid OAuth state")
+        raise Exception("Invalid OAuth state format")
+    
 def handle_callback(db: Session, code: str, channel_id: int, tenant_id: int) -> MercadoLibreAuth:
     """
     Intercambia code por tokens y guarda auth POR TENANT.
