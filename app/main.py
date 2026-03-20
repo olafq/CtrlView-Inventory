@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 import subprocess
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.modules.auth.router import router as auth_router
 from app.db.session import SessionLocal
 from app.db.models.channel import Channel
-
 from app.modules.channels.router import router as channels_router
 from app.modules.imports.router import router as imports_router
 from app.modules.integrations.mercadolibre.router_oauth import router as ml_oauth_router
@@ -71,6 +71,7 @@ def health():
 # =========================
 # Routers
 # =========================
+app.include_router(auth_router) # <--- 2. NEW ROUTER (Agregalo primero o después de health)
 app.include_router(channels_router)
 app.include_router(imports_router)
 app.include_router(ml_oauth_router)
