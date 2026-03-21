@@ -72,11 +72,11 @@ app.add_middleware(
     allow_origins=[
         "https://ctrlview-inventory-ui.vercel.app",
         "https://oauth.goqconsultant.com",
-        "http://localhost:3000", # Agrego localhost por si testeas el Front local
+        "http://localhost:3000",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],  # Esto permite GET, POST, PUT, DELETE, etc.
+    allow_headers=["*"],  # Esto permite que el Front envíe Tokens y JSON
 )
 
 
