@@ -15,7 +15,7 @@ class RegisterSchema(BaseModel):
     email: EmailStr
     password: str
     full_name: str
-    is_admin: False  # True = Empresa, False = Empleado
+    is_admin: True  # True = Empresa, False = Empleado
     company_name: Optional[str] = None # Solo para Empresa
     company_code: Optional[str] = None # Solo para Empleado
 
