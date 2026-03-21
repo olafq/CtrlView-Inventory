@@ -67,16 +67,14 @@ app = FastAPI(
 # ==========================================
 # 🛡️ Configuración de CORS
 # ==========================================
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://ctrlview-inventory-ui.vercel.app",
-        "https://oauth.goqconsultant.com",
-        "http://localhost:3000",
-    ],
+    allow_origins=["*"],  # El asterisco permite CUALQUIER origen (Vercel, Local, etc.)
     allow_credentials=True,
-    allow_methods=["*"],  # Esto permite GET, POST, PUT, DELETE, etc.
-    allow_headers=["*"],  # Esto permite que el Front envíe Tokens y JSON
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
