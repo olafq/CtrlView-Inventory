@@ -28,34 +28,48 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ==========================================
-    # 🛠️ 1. Crear tablas si no existen
-    # ==========================================
-    # Esto asegura que User y Tenant existan en la DB antes de registrar
-    Base.metadata.create_all(bind=engine)
-
-    # ==========================================
-    # 🌱 2. Seed de Canales por defecto
-    # ==========================================
+    # Lógica al iniciar la aplicación
     db = SessionLocal()
     try:
-        defaults = [
-            ("MercadoLibre", "mercadolibre"),
-            ("Web", "web"),
-            ("POS", "pos"),
-        ]
-
-        existing_types = {c.type for c in db.query(Channel).all()}
-
-        for name, ctype in defaults:
-            if ctype not in existing_types:
-                db.add(Channel(name=name, type=ctype))
-
-        db.commit()
+        # 1. Buscamos si existe algún Tenant (Empresa)
+        first_tenant = db.query(Tenant).first()
+        
+        if first_tenant:
+            # 2. Definimos los canales básicos
+            default_channels = [
+                {"name": "MercadoLibre", "type": "mercadolibre"},
+                {"name": "Web", "type": "web"},
+                {"name": "POS", "type": "pos"}
+            ]
+            
+            for ch in default_channels:
+                # 3. Verificamos si el canal ya existe para ESTE tenant
+                exists = db.query(Channel).filter_by(
+                    name=ch["name"], 
+                    tenant_id=first_tenant.id
+                ).first()
+                
+                if not exists:
+                    new_channel = Channel(
+                        name=ch["name"], 
+                        type=ch["type"], 
+                        tenant_id=first_tenant.id
+                    )
+                    db.add(new_channel)
+            
+            db.commit()
+            print(f"✅ Canales inicializados para el Tenant: {first_tenant.name}")
+        else:
+            print("⚠️ No hay Tenants en la base de datos. Los canales se crearán cuando se registre la primera empresa.")
+            
+    except Exception as e:
+        print(f"❌ Error en lifespan: {e}")
+        db.rollback()
     finally:
         db.close()
-
-    yield  # 🚀 La aplicación empieza a recibir peticiones
+        
+    yield
+    # Lógica al cerrar la aplicación (si es necesaria)
 
 
 app = FastAPI(
