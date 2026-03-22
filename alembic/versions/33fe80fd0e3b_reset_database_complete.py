@@ -48,6 +48,7 @@ def upgrade() -> None:
     op.create_table('channels',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
         sa.Column('name', sa.String(), nullable=False),
+        sa.Column('type', sa.String(), nullable=False, server_default='manual'), # Agregamos esta línea
         sa.Column('tenant_id', sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id')
