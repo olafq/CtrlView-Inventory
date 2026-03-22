@@ -48,8 +48,19 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
         
         try:
             db.add(new_tenant)
-            db.flush()  # Obtenemos el ID sin cerrar la transacción
+            db.flush()  
             tenant_id = new_tenant.id
+            
+            # --- TOQUE PROFESIONAL: Semilla de canales iniciales ---
+            from app.db.models.channel import Channel # Asegúrate de importar tu modelo
+            default_channels = [
+                Channel(name="Web", type="web", tenant_id=tenant_id),
+                Channel(name="MercadoLibre", type="mercadolibre", tenant_id=tenant_id),
+                Channel(name="POS", type="pos", tenant_id=tenant_id)
+            ]
+            db.add_all(default_channels)
+            # -------------------------------------------------------
+
             role = "admin"
             response_code = new_tenant.company_code
         except Exception as e:
