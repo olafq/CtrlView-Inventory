@@ -7,8 +7,14 @@ from app.db.models.tenant import Tenant
 from app.core.security import get_password_hash
 from pydantic import BaseModel, EmailStr
 from typing import Optional
-
+from app.core.security import get_password_hash, verify_password, create_access_token # <--- Agrega estos dos últimos
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
+
+
+class LoginSchema(BaseModel):
+    email: EmailStr
+    password: str
+
 
 # Esquema de validación
 class RegisterSchema(BaseModel):
@@ -78,7 +84,7 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
         tenant_id = tenant.id
         role = "employee"
         response_code = tenant.company_code
-        
+
     password_plana = str(data.password).strip() # Limpiamos espacios y forzamos string
     hash_final = get_password_hash(password_plana)
     # 2. Crear el Usuario vinculado al Tenant
@@ -100,4 +106,43 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
         "status": "success", 
         "message": "Registro completado exitosamente",
         "company_code": response_code
+    }
+
+@router.post("/login")
+def login(data: LoginSchema, db: Session = Depends(get_db)):
+    # 1. Buscar al usuario por email
+    user = db.query(User).filter(User.email == data.email).first()
+    
+    # 2. Validar existencia y contraseña
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="El email no está registrado."
+        )
+    
+    if not verify_password(data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Contraseña incorrecta."
+        )
+
+    # 3. Crear el Token de acceso (JWT)
+    # Metemos el email, el rol y el tenant_id en el token para que el front sepa quién es
+    access_token = create_access_token(
+        data={
+            "sub": user.email, 
+            "role": user.role, 
+            "tenant_id": user.tenant_id,
+            "full_name": user.full_name
+        }
+    )
+
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "user": {
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role
+        }
     }
