@@ -78,7 +78,9 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
         tenant_id = tenant.id
         role = "employee"
         response_code = tenant.company_code
-
+        
+    password_plana = str(data.password).strip() # Limpiamos espacios y forzamos string
+    hash_final = get_password_hash(password_plana)
     # 2. Crear el Usuario vinculado al Tenant
     try:
         new_user = User(
