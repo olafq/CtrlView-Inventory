@@ -109,6 +109,7 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
     }
 
 @router.post("/login")
+@router.post("/login/", include_in_schema=False) # <--- Acepta la barra de Vercel
 def login(data: LoginSchema, db: Session = Depends(get_db)):
     # 1. Buscar al usuario por email
     user = db.query(User).filter(User.email == data.email).first()
