@@ -76,7 +76,7 @@ app = FastAPI(
     title="Sync App - Inventory Engine",
     version="1.0.0",
     lifespan=lifespan,
-    redirect_slashes=False  # Agregá esto para evitar redirecciones que rompan CORS
+    redirect_slashes=True  # Agregá esto para evitar redirecciones que rompan CORS
 )
 
 # ==========================================
