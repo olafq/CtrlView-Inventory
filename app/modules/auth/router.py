@@ -8,7 +8,12 @@ from typing import Optional
 from app.db.session import get_db
 from app.db.models.user import User
 from app.db.models.tenant import Tenant
-from app.core.security import get_password_hash, verify_password, create_access_token
+from app.core.security import (
+    get_password_hash, 
+    verify_password, 
+    create_access_token,
+    get_current_user  # <--- IMPORTADO DE SECURITY.PY
+)
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -17,9 +22,6 @@ router = APIRouter(prefix="/auth", tags=["Autenticación"])
 class LoginSchema(BaseModel):
     email: EmailStr
     password: str
-
-    # Esta configuración es la "vacuna" contra el error 422:
-    # Ignora cualquier campo extra que el frontend envíe por error.
     model_config = ConfigDict(extra="ignore")
 
 class RegisterSchema(BaseModel):
@@ -29,31 +31,41 @@ class RegisterSchema(BaseModel):
     is_admin: bool = False
     company_name: Optional[str] = None
     company_code: Optional[str] = None
-    
     model_config = ConfigDict(extra="ignore")
 
 # --- ENDPOINTS ---
 
+@router.get("/me")
+def get_me(
+    db: Session = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Recupera el perfil del usuario logueado y los datos de su empresa.
+    Resuelve el error 404 que veíamos en la consola del navegador.
+    """
+    # Buscamos el tenant vinculado al usuario
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    
+    return {
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role,
+        "company_code": tenant.company_code if tenant else None,
+        "company_name": tenant.name if tenant else "Sin Empresa"
+    }
+
 @router.post("/login")
-@router.post("/login/", include_in_schema=False) # Soporte para la barra de Vercel
+@router.post("/login/", include_in_schema=False)
 def login(data: LoginSchema, db: Session = Depends(get_db)):
-    # 1. Buscar al usuario
     user = db.query(User).filter(User.email == data.email).first()
     
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, 
-            detail="Credenciales incorrectas"
-        )
-    
-    # 2. Verificar contraseña
-    if not verify_password(data.password, user.hashed_password):
+    if not user or not verify_password(data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Credenciales incorrectas"
         )
 
-    # 3. Generar JWT
     access_token = create_access_token(
         data={
             "sub": user.email, 
@@ -75,7 +87,6 @@ def login(data: LoginSchema, db: Session = Depends(get_db)):
 
 @router.post("/register")
 def register(data: RegisterSchema, db: Session = Depends(get_db)):
-    # Verificar si ya existe
     if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="El email ya está registrado.")
 
@@ -98,7 +109,6 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
             db.flush()
             tenant_id = new_tenant.id
             
-            # Canales por defecto
             from app.db.models.channel import Channel
             db.add_all([
                 Channel(name="Web", type="web", tenant_id=tenant_id),
@@ -119,7 +129,6 @@ def register(data: RegisterSchema, db: Session = Depends(get_db)):
         role = "employee"
         response_code = tenant.company_code
 
-    # Crear usuario con hash limpio
     try:
         hash_final = get_password_hash(data.password)
         new_user = User(
