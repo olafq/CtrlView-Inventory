@@ -12,7 +12,7 @@ from app.core.security import (
     get_password_hash, 
     verify_password, 
     create_access_token,
-    get_current_user  # <--- IMPORTADO DE SECURITY.PY
+    get_current_user
 )
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
@@ -41,17 +41,16 @@ def get_me(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Recupera el perfil del usuario logueado y los datos de su empresa.
-    Resuelve el error 404 que veíamos en la consola del navegador.
+    Recupera el perfil del usuario logueado y el código de su empresa.
     """
-    # Buscamos el tenant vinculado al usuario
+    # Buscamos el tenant vinculado al usuario por su ID
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     
     return {
         "email": current_user.email,
         "full_name": current_user.full_name,
         "role": current_user.role,
-        "company_code": tenant.company_code if tenant else None,
+        "company_code": tenant.company_code if tenant else "No disponible",
         "company_name": tenant.name if tenant else "Sin Empresa"
     }
 
