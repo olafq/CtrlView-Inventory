@@ -6,6 +6,7 @@ from typing import Optional
 
 # Imports de lógica interna
 from app.db.session import get_db
+from app.db.models.channel import Channel
 from app.db.models.user import User
 from app.db.models.tenant import Tenant
 from app.core.security import (
@@ -41,17 +42,31 @@ def get_me(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Recupera el perfil del usuario logueado y el código de su empresa.
+    Recupera el perfil del usuario, su tenant y sus canales de venta de forma dinámica.
     """
-    # Buscamos el tenant vinculado al usuario por su ID
+    # 1. Buscamos el tenant vinculado al usuario
     tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     
+    # 2. BUSQUEDA DINÁMICA DE CANALES
+    # Filtramos por el tenant_id del usuario logueado para que cada uno vea solo lo suyo
+    channels = db.query(Channel).filter(Channel.tenant_id == current_user.tenant_id).all()
+    
+    # 3. Construimos la respuesta con TODA la información de identidad
     return {
         "email": current_user.email,
         "full_name": current_user.full_name,
         "role": current_user.role,
+        "tenant_id": current_user.tenant_id,  # Clave para el multi-tenancy
         "company_code": tenant.company_code if tenant else "No disponible",
-        "company_name": tenant.name if tenant else "Sin Empresa"
+        "company_name": tenant.name if tenant else "Sin Empresa",
+        # Mapeamos los canales para que el Frontend sepa qué IDs usar (ej: 17 o 20)
+        "channels": [
+            {
+                "id": c.id, 
+                "name": c.name, 
+                "type": c.type
+            } for c in channels
+        ]
     }
 
 @router.post("/login")
