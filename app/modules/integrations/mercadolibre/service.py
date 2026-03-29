@@ -183,21 +183,19 @@ def _refresh_access_token(db: Session, auth: MercadoLibreAuth) -> MercadoLibreAu
     return auth
 
 
-def get_valid_ml_access_token(db: Session, channel_id: int, tenant_id: int) -> str:
+def get_valid_ml_access_token(db: Session, channel_id: int, tenant_id: int = None) -> str:
     """
     Devuelve SIEMPRE un access_token válido por tenant.
     """
-    auth = (
-        db.query(MercadoLibreAuth)
-        .filter(
-            MercadoLibreAuth.channel_id == channel_id,
-            MercadoLibreAuth.tenant_id == tenant_id,
-        )
-        .first()
-    )
+    query = db.query(MercadoLibreAuth).filter(MercadoLibreAuth.channel_id == channel_id)
+    
+    if tenant_id:
+        query = query.filter(MercadoLibreAuth.tenant_id == tenant_id)
+        
+    auth = query.first()
 
     if not auth:
-        raise Exception("MercadoLibre not connected for this tenant/channel")
+        raise Exception(f"MercadoLibre not connected for channel {channel_id}")
 
     if not auth.expires_at:
         raise Exception("MercadoLibre auth missing expires_at")
