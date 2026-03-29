@@ -109,3 +109,21 @@ def get_import_status(run_id: int, db: Session = Depends(get_db)):
         "error": run.error,
         "finished_at": run.finished_at
     }
+
+@router.get("/import/latest")
+def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get_db)):
+    """Busca la última ejecución para mostrar el estado en el banner"""
+    run = db.query(CatalogImportRun).filter(
+        CatalogImportRun.tenant_id == tenant_id,
+        CatalogImportRun.channel_id == channel_id
+    ).order_by(CatalogImportRun.started_at.desc()).first()
+    
+    if not run:
+        return {"status": "none"}
+    
+    return {
+        "status": run.status,
+        "inserted": run.counts.get("inserted", 0) if run.counts else 0,
+        "updated": run.counts.get("updated", 0) if run.counts else 0,
+        "error": run.error
+    }
