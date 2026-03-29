@@ -86,7 +86,7 @@ def callback(
         import_mercadolibre_task.delay(
             run_id=new_run.id,
             access_token=auth_info.access_token,
-            seller_id=int(auth_info.mercadolibre_user_id),
+            seller_id=int(auth_info.ml_user_id),
             tenant_id=tenant_id
         )
 
