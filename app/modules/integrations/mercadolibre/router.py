@@ -1,100 +1,111 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import List
 
 from app.db.dependencies import get_db
-from app.db.models import Channel, CatalogImportRun
+from app.db.models import Channel, CatalogImportRun, ExternalItem, MercadoLibreAuth
 from app.modules.integrations.mercadolibre.tasks import import_mercadolibre_task
-from fastapi.responses import RedirectResponse
-
-import os
-import requests
-
-router = APIRouter(
-    prefix="/integrations/mercadolibre/imports",
-    tags=["MercadoLibre"]
-)
-
-@router.post("/imports/start")
-def start_import(db: Session = Depends(get_db)):
-    channel = (
-        db.query(Channel)
-        .filter(Channel.type == "mercadolibre")
-        .first()
-    )
-
-    if not channel:
-        raise HTTPException(status_code=404, detail="MercadoLibre channel not found")
-
-    run = CatalogImportRun(
-        channel_id=channel.id,
-        status="queued",
-    )
-
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-
-    import_mercadolibre_task.delay(run.id)
-
-    return {
-        "id": run.id,
-        "channel_id": run.channel_id,
-        "status": run.status,
-        "started_at": run.started_at,
-    }
-
 
 router = APIRouter(
     prefix="/integrations/mercadolibre",
     tags=["MercadoLibre"]
 )
 
-ML_CLIENT_ID = os.getenv("ML_CLIENT_ID")
-REDIRECT_URI = os.getenv(
-    "ML_REDIRECT_URI",
-    "https://oauth.goqconsultant.com/integrations/mercadolibre/oauth/callback"
-)
+# =========================================================
+# 1. LISTADO DE PRODUCTOS (Para la Tabla del Frontend)
+# =========================================================
+@router.get("/items")
+def get_ml_items(
+    tenant_id: int,
+    channel_id: int,
+    db: Session = Depends(get_db),
+    skip: int = 0,
+    limit: int = 50
+):
+    """
+    Retorna los productos de ML ya importados en la base de datos.
+    Este es el endpoint que usará tu tabla en el Frontend.
+    """
+    items = db.query(ExternalItem).filter(
+        ExternalItem.tenant_id == tenant_id,
+        ExternalItem.channel_id == channel_id
+    ).offset(skip).limit(limit).all()
 
-@router.get("/oauth/start")
-def oauth_start():
-    url = (
-        "https://auth.mercadolibre.com.ar/authorization"
-        f"?response_type=code"
-        f"&client_id={ML_CLIENT_ID}"
-        f"&redirect_uri={REDIRECT_URI}"
+    return [
+        {
+            "id": item.id,
+            "external_id": item.external_item_id,
+            "sku": item.external_sku,
+            "price": float(item.price) if item.price else 0,
+            "stock": item.stock,
+            "status": item.status,
+            "is_active": item.is_active,
+            "updated_at": item.updated_at
+        } for item in items
+    ]
+
+# =========================================================
+# 2. DISPARADOR MANUAL DE IMPORTACIÓN
+# =========================================================
+@router.post("/import/start")
+def start_import(
+    tenant_id: int,
+    channel_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Permite al usuario darle al botón 'Sincronizar' manualmente.
+    """
+    # Validar canal y auth
+    channel = db.query(Channel).filter(
+        Channel.id == channel_id, 
+        Channel.tenant_id == tenant_id
+    ).first()
+    
+    if not channel:
+        raise HTTPException(status_code=404, detail="Canal no encontrado para este tenant")
+
+    auth = db.query(MercadoLibreAuth).filter(
+        MercadoLibreAuth.channel_id == channel_id
+    ).first()
+
+    if not auth:
+        raise HTTPException(status_code=401, detail="Cuenta de ML no vinculada")
+
+    # Crear el registro de la corrida
+    run = CatalogImportRun(
+        tenant_id=tenant_id,
+        channel_id=channel.id,
+        status="pending",
+        started_at=datetime.utcnow()
     )
-    return RedirectResponse(url)
+    db.add(run)
+    db.commit()
+    db.refresh(run)
 
+    # Disparar Celery
+    import_mercadolibre_task.delay(
+        run_id=run.id,
+        access_token=auth.access_token,
+        seller_id=int(auth.mercadolibre_user_id),
+        tenant_id=tenant_id
+    )
 
+    return {"status": "import_started", "run_id": run.id}
 
-ML_CLIENT_SECRET = os.getenv("ML_CLIENT_SECRET")
-
-@router.get("/oauth/callback")
-def oauth_callback(code: str):
-    token_url = "https://api.mercadolibre.com/oauth/token"
-
-    payload = {
-        "grant_type": "authorization_code",
-        "client_id": ML_CLIENT_ID,
-        "client_secret": ML_CLIENT_SECRET,
-        "code": code,
-        "redirect_uri": REDIRECT_URI,
-    }
-
-    response = requests.post(token_url, data=payload)
-
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=400,
-            detail=response.text
-        )
-
-    data = response.json()
-
-    # 🔐 POR AHORA solo devolvemos el token (después lo guardamos en DB)
+# =========================================================
+# 3. ESTADO DE LA IMPORTACIÓN (Para mostrar loaders)
+# =========================================================
+@router.get("/import/status/{run_id}")
+def get_import_status(run_id: int, db: Session = Depends(get_db)):
+    run = db.get(CatalogImportRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run no encontrado")
+    
     return {
-        "access_token": data["access_token"],
-        "user_id": data["user_id"],
-        "expires_in": data["expires_in"],
+        "status": run.status,
+        "counts": run.counts,
+        "error": run.error,
+        "finished_at": run.finished_at
     }
-

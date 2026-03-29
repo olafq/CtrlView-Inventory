@@ -1,75 +1,94 @@
 from datetime import datetime
 from sqlalchemy.orm import Session
-import hashlib
+from app.db.models import ExternalItem, CatalogImportRun, Channel, Product
+from .client import MercadoLibreClient
 
-from app.db.models import ExternalItem, CatalogImportRun, Channel
-
-
-def hash_payload(payload: dict) -> str:
-    return hashlib.sha256(str(payload).encode("utf-8")).hexdigest()
-
-
-def import_catalog(db: Session, run_id: int):
+def import_catalog(db: Session, run_id: int, access_token: str, seller_id: int, tenant_id: int):
+    # 1. Validar la ejecución y el canal
     run = db.get(CatalogImportRun, run_id)
     if not run:
         raise Exception("Import run not found")
 
-    channel = db.query(Channel).filter(Channel.name == "MercadoLibre").first()
+    # Usamos el channel_id dinámico que viene en la ejecución
+    channel = db.query(Channel).filter(
+        Channel.tenant_id == tenant_id, 
+        Channel.type == "mercadolibre"
+    ).first()
+    
     if not channel:
-        raise Exception("MercadoLibre channel not found")
+        run.status = "failed"
+        run.error = "MercadoLibre channel not found for this tenant"
+        db.commit()
+        return
 
-    # MOCK DATA (después va API real)
-    items = [
-        {
-            "external_item_id": "MLA-123",
-            "external_variant_id": None,
-            "external_sku": "REM-NIKE-M-BLK",
-            "title": "Remera Nike Negra Talle M",
-            "attributes": {"color": "Negro", "talle": "M"},
-        },
-        {
-            "external_item_id": "MLA-124",
-            "external_variant_id": None,
-            "external_sku": "REM-NIKE-L-BLK",
-            "title": "Remera Nike Negra Talle L",
-            "attributes": {"color": "Negro", "talle": "L"},
-        },
-    ]
-
+    client = MercadoLibreClient(access_token)
     inserted = 0
+    updated = 0
+    offset = 0
+    limit = 50
 
-    for item in items:
-        payload = item.copy()
-        h = hash_payload(payload)
+    try:
+        while True:
+            # 2. Buscar IDs de publicaciones (Paginado)
+            search_results = client.get_item_ids(seller_id, limit=limit, offset=offset)
+            item_ids = search_results.get("results", [])
+            
+            if not item_ids:
+                break
 
-        existing = db.query(ExternalItem).filter(
-            ExternalItem.channel_id == channel.id,
-            ExternalItem.external_item_id == item["external_item_id"],
-            ExternalItem.external_variant_id == item["external_variant_id"],
-        ).first()
+            # 3. Traer detalles en bloques de 20 (Multiget para performance)
+            for i in range(0, len(item_ids), 20):
+                batch_ids = item_ids[i:i+20]
+                items_data = client.get_items_batch(batch_ids)
 
-        if existing:
-            if existing.hash != h:
-                existing.raw_payload = payload
-                existing.hash = h
-                existing.fetched_at = datetime.utcnow()
-        else:
-            db.add(
-                ExternalItem(
-                    channel_id=channel.id,
-                    external_item_id=item["external_item_id"],
-                    external_variant_id=item["external_variant_id"],
-                    external_sku=item["external_sku"],
-                    title=item["title"],
-                    attributes=item["attributes"],
-                    raw_payload=payload,
-                    hash=h,
-                )
-            )
-            inserted += 1
+                for item in items_data:
+                    ext_id = item.get("id")
+                    
+                    # Buscar si ya existe en este canal y tenant
+                    existing = db.query(ExternalItem).filter(
+                        ExternalItem.tenant_id == tenant_id,
+                        ExternalItem.channel_id == channel.id,
+                        ExternalItem.external_item_id == ext_id
+                    ).first()
 
-    run.status = "success"
-    run.finished_at = datetime.utcnow()
-    run.counts = {"inserted": inserted}
+                    if existing:
+                        # Actualizar datos cambiantes
+                        existing.stock = item.get("available_quantity", 0)
+                        existing.price = item.get("price")
+                        existing.status = item.get("status")
+                        existing.updated_at = datetime.utcnow()
+                        updated += 1
+                    else:
+                        # Opcional: Aquí podrías crear un 'Product' en el inventario maestro si no existe
+                        # Por ahora, creamos el ExternalItem vinculado
+                        new_item = ExternalItem(
+                            tenant_id=tenant_id,
+                            product_id=None, # Aquí iría la lógica de match con Inventory maestro
+                            channel_id=channel.id,
+                            external_item_id=ext_id,
+                            external_sku=item.get("seller_custom_field"),
+                            price=item.get("price"),
+                            stock=item.get("available_quantity", 0),
+                            status=item.get("status"),
+                            is_active=(item.get("status") == "active")
+                        )
+                        db.add(new_item)
+                        inserted += 1
 
-    db.commit()
+            # Control de paginación
+            offset += limit
+            if offset >= search_results.get("paging", {}).get("total", 0):
+                break
+
+        # 4. Finalizar reporte de la corrida
+        run.status = "success"
+        run.finished_at = datetime.utcnow()
+        run.counts = {"inserted": inserted, "updated": updated}
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        run.status = "failed"
+        run.error = str(e)
+        db.commit()
+        raise e
