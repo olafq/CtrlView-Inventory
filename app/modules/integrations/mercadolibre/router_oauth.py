@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -11,8 +11,10 @@ from app.modules.integrations.mercadolibre.service import (
     handle_callback,
     parse_oauth_state,
 )
-# Importamos la tarea de Celery
-from app.modules.integrations.mercadolibre.tasks import import_mercadolibre_task
+
+# IMPORTANTE: Ahora importamos la función directamente desde el importer
+# en lugar de la tarea de Celery para ahorrar recursos y costos.
+from app.modules.integrations.mercadolibre.importer import import_mercadolibre_items
 
 router = APIRouter(
     prefix="/integrations/mercadolibre/oauth",
@@ -43,16 +45,14 @@ def login(
 # CALLBACK (MercadoLibre vuelve acá)
 # =========================================================
 @router.get("/callback")
-def callback(
+async def callback(
+    background_tasks: BackgroundTasks, # Inyectamos BackgroundTasks de FastAPI
     code: str | None = None,
     state: str | None = None,
     db: Session = Depends(get_db),
 ):
-    if not code:
-        raise HTTPException(status_code=400, detail="Missing code")
-
-    if not state:
-        raise HTTPException(status_code=400, detail="Missing state")
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
 
     try:
         # 1. Recuperamos el contexto del estado (tenant y channel)
@@ -60,8 +60,7 @@ def callback(
         tenant_id = parsed["tenant_id"]
         channel_id = parsed["channel_id"]
 
-        # 2. Intercambiamos el code por tokens y los guardamos
-        # Asumimos que handle_callback devuelve el objeto con los tokens
+        # 2. Intercambiamos el code por tokens y los guardamos en Supabase
         auth_info = handle_callback(
             db=db,
             code=code,
@@ -69,8 +68,7 @@ def callback(
             tenant_id=tenant_id,
         )
 
-        # 3. CREAMOS EL REGISTRO DE IMPORTACIÓN
-        # Esto sirve para que el usuario sepa que hay una tarea corriendo
+        # 3. Creamos el registro de importación para el feedback visual
         new_run = CatalogImportRun(
             tenant_id=tenant_id,
             channel_id=channel_id,
@@ -81,21 +79,23 @@ def callback(
         db.commit()
         db.refresh(new_run)
 
-        # 4. DISPARAMOS LA TAREA EN SEGUNDO PLANO
-        # .delay() envía la tarea a Celery y libera el request de FastAPI
-        import_mercadolibre_task.delay(
-            run_id=new_run.id,
-            access_token=auth_info.access_token,
-            seller_id=int(auth_info.ml_user_id),
-            tenant_id=tenant_id
+        # 4. DISPARAMOS LA TAREA EN SEGUNDO PLANO (MODO GRATUITO)
+        # Esto envía la redirección al usuario PRIMERO y luego sigue trabajando.
+        # ml_user_id corregido según tu esquema de DB.
+        background_tasks.add_task(
+            import_mercadolibre_items,
+            db=db,
+            auth=auth_info,
+            run_id=new_run.id
         )
 
-        # Redirección final al frontend
+        # 5. Redirección final al frontend (Vercel)
         frontend_url = "https://ctrlview-inventory-ui.vercel.app/settings?ml=connected"
         return RedirectResponse(frontend_url)
 
     except Exception as e:
         db.rollback()
+        print(f"DEBUG ERROR EN CALLBACK: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Error en callback: {str(e)}")
 
 
