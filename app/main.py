@@ -1,5 +1,4 @@
 import os
-import subprocess
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
@@ -28,14 +27,17 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Lógica al iniciar la aplicación
+    """
+    Lógica de inicio y cierre de la aplicación.
+    Inicializa canales básicos si existe un Tenant.
+    """
     db = SessionLocal()
     try:
-        # 1. Buscamos si existe algún Tenant (Empresa)
+        # Buscamos si existe algún Tenant (Empresa)
         first_tenant = db.query(Tenant).first()
         
         if first_tenant:
-            # 2. Definimos los canales básicos
+            # Definimos los canales básicos
             default_channels = [
                 {"name": "MercadoLibre", "type": "mercadolibre"},
                 {"name": "Web", "type": "web"},
@@ -43,7 +45,7 @@ async def lifespan(app: FastAPI):
             ]
             
             for ch in default_channels:
-                # 3. Verificamos si el canal ya existe para ESTE tenant
+                # Verificamos si el canal ya existe para este tenant
                 exists = db.query(Channel).filter_by(
                     name=ch["name"], 
                     tenant_id=first_tenant.id
@@ -60,48 +62,50 @@ async def lifespan(app: FastAPI):
             db.commit()
             print(f"✅ Canales inicializados para el Tenant: {first_tenant.name}")
         else:
-            print("⚠️ No hay Tenants en la base de datos. Los canales se crearán cuando se registre la primera empresa.")
+            print("⚠️ No hay Tenants en la base de datos. Los canales se crearán al registrar la primera empresa.")
             
     except Exception as e:
         print(f"❌ Error en lifespan: {e}")
         db.rollback()
     finally:
         db.close()
-        
     yield
-    # Lógica al cerrar la aplicación (si es necesaria)
 
-
+# Configuración de la instancia de FastAPI
 app = FastAPI(
-    title="Sync App - Inventory Engine",
+    title="CtrlView Inventory Engine",
     version="1.0.0",
-    lifespan=lifespan,
-    redirect_slashes=True  # Agregá esto para evitar redirecciones que rompan CORS
+    lifespan=lifespan
 )
 
 # ==========================================
 # 🛡️ Configuración de CORS
 # ==========================================
-
-
+# Agregamos tus dominios específicos además del "*" para mayor compatibilidad con navegadores
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # El asterisco permite CUALQUIER origen (Vercel, Local, etc.)
+    allow_origins=[
+        "https://ctrlview-inventory-ui.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "*" 
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
 @app.get("/")
 def health():
-    return {"status": "ok", "service": "Sync App Backend"}
-
+    return {
+        "status": "ok", 
+        "service": "CtrlView Backend",
+        "version": "1.0.0"
+    }
 
 # ==========================================
 # 🛣️ Registro de Routers
 # ==========================================
-# El router de AUTH debe estar presente para Empresa/Empleado
 app.include_router(auth_router) 
 app.include_router(channels_router)
 app.include_router(imports_router)

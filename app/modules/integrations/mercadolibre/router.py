@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List
 
 from app.db.dependencies import get_db
 from app.db.models import Channel, CatalogImportRun, ExternalItem, MercadoLibreAuth
-from app.modules.integrations.mercadolibre.tasks import import_mercadolibre_task
+# Importamos la función directamente del archivo donde la pegaste antes
+from .importer import import_mercadolibre_items
 
 router = APIRouter(
     prefix="/integrations/mercadolibre",
@@ -25,7 +26,6 @@ def get_ml_items(
 ):
     """
     Retorna los productos de ML ya importados en la base de datos.
-    Este es el endpoint que usará tu tabla en el Frontend.
     """
     items = db.query(ExternalItem).filter(
         ExternalItem.tenant_id == tenant_id,
@@ -46,16 +46,18 @@ def get_ml_items(
     ]
 
 # =========================================================
-# 2. DISPARADOR MANUAL DE IMPORTACIÓN
+# 2. DISPARADOR MANUAL DE IMPORTACIÓN (Corregido)
 # =========================================================
 @router.post("/import/start")
 def start_import(
     tenant_id: int,
     channel_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
     Permite al usuario darle al botón 'Sincronizar' manualmente.
+    Usa BackgroundTasks para evitar la dependencia de Celery en Render.
     """
     # Validar canal y auth
     channel = db.query(Channel).filter(
@@ -64,7 +66,7 @@ def start_import(
     ).first()
     
     if not channel:
-        raise HTTPException(status_code=404, detail="Canal no encontrado para este tenant")
+        raise HTTPException(status_code=404, detail="Canal no encontrado")
 
     auth = db.query(MercadoLibreAuth).filter(
         MercadoLibreAuth.channel_id == channel_id
@@ -84,18 +86,18 @@ def start_import(
     db.commit()
     db.refresh(run)
 
-    # Disparar Celery
-    import_mercadolibre_task.delay(
-        run_id=run.id,
-        access_token=auth.access_token,
-        seller_id=int(auth.mercadolibre_user_id),
-        tenant_id=tenant_id
+    # Disparar la importación en segundo plano usando la función nativa de FastAPI
+    background_tasks.add_task(
+        import_mercadolibre_items,
+        db=db,
+        auth=auth,
+        run_id=run.id
     )
 
     return {"status": "import_started", "run_id": run.id}
 
 # =========================================================
-# 3. ESTADO DE LA IMPORTACIÓN (Para mostrar loaders)
+# 3. ESTADO DE LA IMPORTACIÓN
 # =========================================================
 @router.get("/import/status/{run_id}")
 def get_import_status(run_id: int, db: Session = Depends(get_db)):
@@ -105,7 +107,6 @@ def get_import_status(run_id: int, db: Session = Depends(get_db)):
     
     return {
         "status": run.status,
-        "counts": run.counts,
         "error": run.error,
         "finished_at": run.finished_at
     }
@@ -123,7 +124,6 @@ def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get
     
     return {
         "status": run.status,
-        "inserted": run.counts.get("inserted", 0) if run.counts else 0,
-        "updated": run.counts.get("updated", 0) if run.counts else 0,
-        "error": run.error
+        "message": run.error if run.error else "Sincronización en curso...",
+        "finished_at": run.finished_at
     }
