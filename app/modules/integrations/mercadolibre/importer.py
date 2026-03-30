@@ -5,39 +5,38 @@ from .client import MercadoLibreClient
 
 def import_mercadolibre_items(db: Session, auth, run_id: int):
     """
-    Función principal para importar productos de Mercado Libre en segundo plano.
-    Optimizado para evitar bloqueos y proporcionar logs claros en Render.
+    Sincronización de producción:
+    1. Usa IDs explícitos del objeto auth.
+    2. Maneja lotes (batches) para respetar límites de API.
+    3. Actualiza el estado de la corrida (CatalogImportRun) en tiempo real.
     """
-    print(f"--- [DEBUG] INICIANDO IMPORTACIÓN: RUN ID {run_id} ---")
+    print(f"🚀 [IMPORT] Iniciando proceso para Run ID: {run_id}")
 
     try:
-        # 1. Extraemos datos del objeto auth de forma segura
-        tenant_id = getattr(auth, 'tenant_id', None)
-        access_token = getattr(auth, 'access_token', None)
-        seller_id = getattr(auth, 'ml_user_id', None)
+        # 1. Extracción segura de parámetros
+        # Usamos directamente las propiedades del modelo MercadoLibreAuth
+        tenant_id = auth.tenant_id
+        channel_id = auth.channel_id
+        access_token = auth.access_token
+        seller_id = auth.ml_user_id
 
-        print(f"--- [DEBUG] Contexto: Tenant {tenant_id}, Seller {seller_id} ---")
-
-        # 2. Validar la existencia del registro de ejecución
+        # 2. Obtener el registro de la corrida
         run = db.get(CatalogImportRun, run_id)
         if not run:
-            print(f"--- [ERROR] Import run {run_id} no encontrado en la DB ---")
+            print(f"❌ [ERROR] No se encontró CatalogImportRun con ID {run_id}")
             return
 
-        # 3. Buscar el canal de MercadoLibre asociado
-        channel = db.query(Channel).filter(
-            Channel.tenant_id == tenant_id, 
-            Channel.type == "mercadolibre"
-        ).first()
-        
+        # 3. Validar canal
+        channel = db.get(Channel, channel_id)
         if not channel:
-            print(f"--- [ERROR] Canal ML no encontrado para tenant {tenant_id} ---")
+            error_msg = f"Canal ID {channel_id} no encontrado."
+            print(f"❌ [ERROR] {error_msg}")
             run.status = "failed"
-            run.error = "Canal MercadoLibre no encontrado para este tenant"
+            run.error = error_msg
             db.commit()
             return
 
-        # 4. Inicializar cliente y contadores
+        # 4. Configuración de API y contadores
         client = MercadoLibreClient(access_token)
         inserted = 0
         updated = 0
@@ -48,50 +47,52 @@ def import_mercadolibre_items(db: Session, auth, run_id: int):
         db.commit()
 
         while True:
-            print(f"--- [DEBUG] Consultando API ML: Offset {offset} ---")
-            
-            # Buscar IDs de publicaciones (Paginado)
+            # Buscar IDs de publicaciones del vendedor
             search_results = client.get_item_ids(seller_id, limit=limit, offset=offset)
             item_ids = search_results.get("results", [])
             
             if not item_ids:
-                print("--- [DEBUG] No se encontraron más items para procesar ---")
                 break
 
-            # 5. Traer detalles en bloques (Multiget de a 20 items según API de ML)
+            # API de ML recomienda multiget de a 20 items para no saturar
             for i in range(0, len(item_ids), 20):
                 batch_ids = item_ids[i:i+20]
                 items_data = client.get_items_batch(batch_ids)
 
                 for item in items_data:
-                    ext_id = item.get("id")
-                    if not ext_id: continue
+                    # ML a veces devuelve un wrapper con el código 200 y el body adentro
+                    item_body = item.get("body", {}) if "body" in item else item
+                    ext_id = item_body.get("id")
                     
-                    # Buscar si ya existe en este canal y tenant
+                    if not ext_id:
+                        continue
+                    
+                    # Buscar si ya existe este item en ESTE canal específico
                     existing = db.query(ExternalItem).filter(
-                        ExternalItem.tenant_id == tenant_id,
-                        ExternalItem.channel_id == channel.id,
+                        ExternalItem.channel_id == channel_id,
                         ExternalItem.external_item_id == ext_id
                     ).first()
 
-                    # Mapeo de datos básicos
-                    stock = item.get("available_quantity", 0)
-                    price = item.get("price")
-                    status = item.get("status")
+                    # Mapeo de campos
+                    stock = item_body.get("available_quantity", 0)
+                    price = item_body.get("price")
+                    status = item_body.get("status")
+                    # El SKU suele venir en seller_custom_field en ML
+                    sku = item_body.get("seller_custom_field")
 
                     if existing:
                         existing.stock = stock
                         existing.price = price
                         existing.status = status
+                        existing.external_sku = sku
                         existing.updated_at = datetime.utcnow()
                         updated += 1
                     else:
                         new_item = ExternalItem(
                             tenant_id=tenant_id,
-                            product_id=None, 
-                            channel_id=channel.id,
+                            channel_id=channel_id,
                             external_item_id=ext_id,
-                            external_sku=item.get("seller_custom_field"),
+                            external_sku=sku,
                             price=price,
                             stock=stock,
                             status=status,
@@ -100,29 +101,29 @@ def import_mercadolibre_items(db: Session, auth, run_id: int):
                         db.add(new_item)
                         inserted += 1
 
-                # Commit parcial por lote para asegurar persistencia y liberar memoria
+                # Commit parcial por lote de 20 para no perder progreso si falla el siguiente
                 db.commit()
 
-            # Control de paginación
+            # Control de paginación de la API de ML
             offset += limit
-            paging = search_results.get("paging", {})
-            if offset >= paging.get("total", 0):
+            total_items = search_results.get("paging", {}).get("total", 0)
+            if offset >= total_items:
                 break
 
-        # 6. Finalizar reporte exitoso
+        # 5. Finalización exitosa
         run.status = "success"
         run.finished_at = datetime.utcnow()
-        run.error = f"Insertados: {inserted}, Actualizados: {updated}" 
+        run.error = f"Completado. {inserted} nuevos, {updated} actualizados."
         db.commit()
         
-        print(f"--- [OK] IMPORTACIÓN FINALIZADA: {inserted} nuevos, {updated} actualizados ---")
+        print(f"✅ [IMPORT] Finalizado: {inserted} insertados, {updated} actualizados.")
 
     except Exception as e:
         db.rollback()
-        error_msg = str(e)
-        print(f"--- [CRITICAL ERROR] --- {error_msg}")
+        error_msg = f"Error crítico: {str(e)}"
+        print(f"🔥 [CRITICAL] {error_msg}")
         
-        # Intentamos actualizar el estado de la corrida a fallido
+        # Intentamos marcar el fallo en la base de datos
         try:
             run = db.get(CatalogImportRun, run_id)
             if run:

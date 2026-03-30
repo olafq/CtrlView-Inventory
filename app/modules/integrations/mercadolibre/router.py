@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import List
 
 from app.db.dependencies import get_db
-from app.db.models import Channel, CatalogImportRun, ExternalItem, MercadoLibreAuth
-# Importamos la función directamente del archivo donde la pegaste antes
+from app.db.models import Channel, CatalogImportRun, ExternalItem, MercadoLibreAuth, Product
+# Importamos la función asíncrona que arreglamos en el paso anterior
 from .importer import import_mercadolibre_items
 
 router = APIRouter(
@@ -14,7 +14,7 @@ router = APIRouter(
 )
 
 # =========================================================
-# 1. LISTADO DE PRODUCTOS (Para la Tabla del Frontend)
+# 1. LISTADO DE PRODUCTOS (Consumido por el Frontend)
 # =========================================================
 @router.get("/items")
 def get_ml_items(
@@ -22,15 +22,16 @@ def get_ml_items(
     channel_id: int,
     db: Session = Depends(get_db),
     skip: int = 0,
-    limit: int = 50
+    limit: int = 100
 ):
     """
-    Retorna los productos de ML ya importados en la base de datos.
+    Retorna los ítems de ML ya importados en la DB.
+    Incluye ordenamiento por actualización para ver lo más reciente arriba.
     """
     items = db.query(ExternalItem).filter(
         ExternalItem.tenant_id == tenant_id,
         ExternalItem.channel_id == channel_id
-    ).offset(skip).limit(limit).all()
+    ).order_by(ExternalItem.updated_at.desc()).offset(skip).limit(limit).all()
 
     return [
         {
@@ -46,7 +47,7 @@ def get_ml_items(
     ]
 
 # =========================================================
-# 2. DISPARADOR MANUAL DE IMPORTACIÓN (Corregido)
+# 2. DISPARADOR DE IMPORTACIÓN (Background Task)
 # =========================================================
 @router.post("/import/start")
 def start_import(
@@ -56,29 +57,30 @@ def start_import(
     db: Session = Depends(get_db)
 ):
     """
-    Permite al usuario darle al botón 'Sincronizar' manualmente.
-    Usa BackgroundTasks para evitar la dependencia de Celery en Render.
+    Crea un registro en CatalogImportRun y dispara el Importer en segundo plano.
+    Evita timeouts en Render y permite al usuario seguir navegando.
     """
-    # Validar canal y auth
+    # Validar que el canal existe y pertenece al tenant
     channel = db.query(Channel).filter(
         Channel.id == channel_id, 
         Channel.tenant_id == tenant_id
     ).first()
     
     if not channel:
-        raise HTTPException(status_code=404, detail="Canal no encontrado")
+        raise HTTPException(status_code=404, detail="Canal no encontrado para este Tenant")
 
+    # Obtener credenciales vinculadas
     auth = db.query(MercadoLibreAuth).filter(
         MercadoLibreAuth.channel_id == channel_id
     ).first()
 
     if not auth:
-        raise HTTPException(status_code=401, detail="Cuenta de ML no vinculada")
+        raise HTTPException(status_code=401, detail="El canal no tiene una cuenta de ML vinculada")
 
-    # Crear el registro de la corrida
+    # Registrar el inicio de la corrida
     run = CatalogImportRun(
         tenant_id=tenant_id,
-        channel_id=channel.id,
+        channel_id=channel_id,
         status="pending",
         started_at=datetime.utcnow()
     )
@@ -86,7 +88,7 @@ def start_import(
     db.commit()
     db.refresh(run)
 
-    # Disparar la importación en segundo plano usando la función nativa de FastAPI
+    # Disparar tarea asíncrona
     background_tasks.add_task(
         import_mercadolibre_items,
         db=db,
@@ -94,26 +96,18 @@ def start_import(
         run_id=run.id
     )
 
-    return {"status": "import_started", "run_id": run.id}
-
-# =========================================================
-# 3. ESTADO DE LA IMPORTACIÓN
-# =========================================================
-@router.get("/import/status/{run_id}")
-def get_import_status(run_id: int, db: Session = Depends(get_db)):
-    run = db.get(CatalogImportRun, run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run no encontrado")
-    
     return {
-        "status": run.status,
-        "error": run.error,
-        "finished_at": run.finished_at
+        "status": "import_started", 
+        "run_id": run.id,
+        "message": "La sincronización se está ejecutando en segundo plano."
     }
 
+# =========================================================
+# 3. MONITOREO DE ESTADO
+# =========================================================
 @router.get("/import/latest")
 def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get_db)):
-    """Busca la última ejecución para mostrar el estado en el banner"""
+    """Retorna la última corrida para mostrar progreso en la UI."""
     run = db.query(CatalogImportRun).filter(
         CatalogImportRun.tenant_id == tenant_id,
         CatalogImportRun.channel_id == channel_id
@@ -123,7 +117,9 @@ def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get
         return {"status": "none"}
     
     return {
+        "run_id": run.id,
         "status": run.status,
-        "message": run.error if run.error else "Sincronización en curso...",
+        "message": run.error, # Aquí guardamos el conteo de items al finalizar
+        "started_at": run.started_at,
         "finished_at": run.finished_at
     }
