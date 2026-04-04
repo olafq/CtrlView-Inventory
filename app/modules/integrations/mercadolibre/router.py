@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from app.db.dependencies import get_db
-from app.db.models import Channel, CatalogImportRun, ExternalItem, MercadoLibreAuth, Product
-# Importamos la función asíncrona que arreglamos en el paso anterior
+from app.db.models import Channel, CatalogImportRun, ExternalItem, MercadoLibreAuth
+# Importamos la función que ejecutará la carga en segundo plano
 from .importer import import_mercadolibre_items
 
 router = APIRouter(
@@ -26,7 +26,6 @@ def get_ml_items(
 ):
     """
     Retorna los ítems de ML ya importados en la DB.
-    Incluye ordenamiento por actualización para ver lo más reciente arriba.
     """
     items = db.query(ExternalItem).filter(
         ExternalItem.tenant_id == tenant_id,
@@ -37,10 +36,10 @@ def get_ml_items(
         {
             "id": item.id,
             "external_id": item.external_item_id,
-            "sku": item.external_sku,
-            "price": float(item.price) if item.price else 0,
-            "stock": item.stock,
-            "status": item.status,
+            "sku": item.external_sku or "N/A",
+            "price": float(item.price) if item.price else 0.0,
+            "stock": item.stock or 0,
+            "status": item.status or "unknown",
             "is_active": item.is_active,
             "updated_at": item.updated_at
         } for item in items
@@ -57,10 +56,9 @@ def start_import(
     db: Session = Depends(get_db)
 ):
     """
-    Crea un registro en CatalogImportRun y dispara el Importer en segundo plano.
-    Evita timeouts en Render y permite al usuario seguir navegando.
+    Crea un registro en CatalogImportRun y dispara el Importer.
     """
-    # Validar que el canal existe y pertenece al tenant
+    # 1. Validar existencia del canal
     channel = db.query(Channel).filter(
         Channel.id == channel_id, 
         Channel.tenant_id == tenant_id
@@ -69,7 +67,7 @@ def start_import(
     if not channel:
         raise HTTPException(status_code=404, detail="Canal no encontrado para este Tenant")
 
-    # Obtener credenciales vinculadas
+    # 2. Validar credenciales de ML
     auth = db.query(MercadoLibreAuth).filter(
         MercadoLibreAuth.channel_id == channel_id
     ).first()
@@ -77,18 +75,20 @@ def start_import(
     if not auth:
         raise HTTPException(status_code=401, detail="El canal no tiene una cuenta de ML vinculada")
 
-    # Registrar el inicio de la corrida
+    # 3. Crear registro de la corrida (Status: pending)
     run = CatalogImportRun(
         tenant_id=tenant_id,
         channel_id=channel_id,
         status="pending",
-        started_at=datetime.utcnow()
+        started_at=datetime.utcnow(),
+        error=None
     )
     db.add(run)
     db.commit()
     db.refresh(run)
 
-    # Disparar tarea asíncrona
+    # 4. Lanzar tarea en segundo plano
+    # Pasamos los IDs en lugar de objetos complejos si es posible para evitar problemas de sesión
     background_tasks.add_task(
         import_mercadolibre_items,
         db=db,
@@ -103,23 +103,26 @@ def start_import(
     }
 
 # =========================================================
-# 3. MONITOREO DE ESTADO
+# 3. MONITOREO DE ESTADO (Evita el Error 500)
 # =========================================================
 @router.get("/import/latest")
 def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get_db)):
-    """Retorna la última corrida para mostrar progreso en la UI."""
+    """
+    Retorna la última corrida. Corregido para manejar valores nulos.
+    """
     run = db.query(CatalogImportRun).filter(
         CatalogImportRun.tenant_id == tenant_id,
         CatalogImportRun.channel_id == channel_id
     ).order_by(CatalogImportRun.started_at.desc()).first()
     
     if not run:
-        return {"status": "none"}
+        return {"status": "none", "message": "No hay importaciones previas."}
     
+    # Blindaje contra nulos para que FastAPI no explote
     return {
         "run_id": run.id,
         "status": run.status,
-        "message": run.error, # Aquí guardamos el conteo de items al finalizar
-        "started_at": run.started_at,
-        "finished_at": run.finished_at
+        "message": str(run.error) if run.error else "Sin detalles adicionales.",
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None
     }
