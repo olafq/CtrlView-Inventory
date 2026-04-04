@@ -267,10 +267,33 @@ def recalculate_product_stock(db: Session, product: Product) -> None:
 # ML CLIENT (tenant-safe)
 # =========================
 def get_ml_client(db: Session, channel_id: int, tenant_id: int) -> MercadoLibreClient:
-    access_token = get_valid_ml_access_token(db, channel_id=channel_id, tenant_id=tenant_id)
-    return MercadoLibreClient(access_token)
+    # 1. Obtenemos el registro de auth completo de la DB
+    auth = (
+        db.query(MercadoLibreAuth)
+        .filter(
+            MercadoLibreAuth.channel_id == channel_id,
+            MercadoLibreAuth.tenant_id == tenant_id
+        )
+        .first()
+    )
+    
+    if not auth:
+        raise Exception(f"No hay conexión de MercadoLibre para el canal {channel_id}")
 
+    # 2. Definimos el "callback": qué hacer cuando el cliente refresca el token internamente
+    def update_tokens_callback(new_access, new_refresh):
+        auth.access_token = new_access
+        auth.refresh_token = new_refresh
+        auth.expires_at = datetime.utcnow() + timedelta(hours=6) # ML suele dar 6hs
+        db.commit()
+        print(f"✅ [DATABASE] Tokens actualizados automáticamente para tenant {tenant_id}")
 
+    # 3. Retornamos el cliente con la "superpotencia" de autorefresh
+    return MercadoLibreClient(
+        access_token=auth.access_token,
+        refresh_token=auth.refresh_token,
+        on_token_refresh=update_tokens_callback
+    )
 # =========================
 # SYNC ORDERS (tenant-safe)
 # =========================

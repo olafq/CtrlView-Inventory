@@ -24,29 +24,33 @@ ML_API_BASE = "https://api.mercadolibre.com"
 @router.get("/me")
 def get_my_ml_account(
     channel_id: int = 1,
+    tenant_id: int = 1,  # Agregamos tenant_id para que sea seguro
     db: Session = Depends(get_db),
 ):
     """
     Devuelve la cuenta MercadoLibre conectada (users/me).
-    Útil para debug.
+    Usa el MercadoLibreClient para asegurar que el token sea válido (Auto-Refresh).
     """
+    from app.modules.integrations.mercadolibre.service import get_ml_client
+    
+    try:
+        # 1. Obtenemos el cliente con esteroides (maneja el refresh solo)
+        # IMPORTANTE: Asegúrate de que el tenant_id coincida con tu usuario de prueba
+        client = get_ml_client(db, channel_id=channel_id, tenant_id=tenant_id)
+        
+        # 2. Llamamos al método del cliente
+        # Si el token estaba vencido, el cliente hizo el refresh en la línea anterior
+        user_data = client.get_current_user()
+        
+        return user_data
 
-    token = get_valid_ml_access_token(db, channel_id)
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-    }
-
-    r = requests.get(
-        f"{ML_API_BASE}/users/me",
-        headers=headers,
-        timeout=10,
-    )
-
-    if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.text)
-
-    return r.json()
+    except Exception as e:
+        # Si algo falla (ej: no hay conexión o el refresh_token también expiró)
+        print(f"❌ Error en /me: {str(e)}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Error al obtener cuenta de Mercado Libre: {str(e)}"
+        )
 
 
 # =========================================================

@@ -2,6 +2,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from app.db.models import ExternalItem, CatalogImportRun, Channel
 from .client import MercadoLibreClient
+from .service import get_ml_client 
 
 def import_mercadolibre_items(db: Session, auth, run_id: int):
     """
@@ -37,7 +38,10 @@ def import_mercadolibre_items(db: Session, auth, run_id: int):
             return
 
         # 4. Configuración de API y contadores
-        client = MercadoLibreClient(access_token)
+        # IMPORTANTE: Usamos la función del service para tener el Auto-Refresh activado
+        
+        client = get_ml_client(db, channel_id=channel_id, tenant_id=tenant_id)
+        
         inserted = 0
         updated = 0
         offset = 0
