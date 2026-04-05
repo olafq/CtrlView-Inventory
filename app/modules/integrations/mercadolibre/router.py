@@ -99,7 +99,7 @@ def start_import(
 @router.get("/import/latest")
 def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get_db)):
     """
-    Retorna la última corrida. Corregido para manejar valores nulos.
+    Retorna la última corrida. Versión blindada contra Error 500.
     """
     run = db.query(CatalogImportRun).filter(
         CatalogImportRun.tenant_id == tenant_id,
@@ -109,10 +109,10 @@ def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get
     if not run:
         return {"status": "none", "message": "No hay importaciones previas."}
     
-    # Blindaje contra nulos para que FastAPI no explote
+    # IMPORTANTE: Extraemos los valores manualmente para que FastAPI no explote
     return {
-        "run_id": run.id,
-        "status": run.status,
+        "run_id": int(run.id),
+        "status": str(run.status),
         "message": str(run.error) if run.error else "Sin detalles adicionales.",
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None
