@@ -1,78 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
-from datetime import datetime
-from typing import List, Optional
-
 from app.db.dependencies import get_db
-from app.db.models import Channel, CatalogImportRun, ExternalItem, MercadoLibreAuth
-# Importamos la función que ejecutará la carga en segundo plano
+from app.db.models import CatalogImportRun, Channel, MercadoLibreAuth
 from .importer import import_mercadolibre_items
+from datetime import datetime
 
-router = APIRouter(
-    prefix="/integrations/mercadolibre",
-    tags=["MercadoLibre"]
-)
+router = APIRouter(prefix="/integrations/mercadolibre", tags=["MercadoLibre"])
 
-# =========================================================
-# 1. LISTADO DE PRODUCTOS (Consumido por el Frontend)
-# =========================================================
-@router.get("/items")
-def get_ml_items(
-    tenant_id: int,
-    channel_id: int,
-    db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 100
-):
-    """
-    Retorna los ítems de ML ya importados en la DB.
-    """
-    items = db.query(ExternalItem).filter(
-        ExternalItem.tenant_id == tenant_id,
-        ExternalItem.channel_id == channel_id
-    ).order_by(ExternalItem.updated_at.desc()).offset(skip).limit(limit).all()
-
-    return [
-        {
-            "id": item.id,
-            "external_id": item.external_item_id,
-            "sku": item.external_sku or "N/A",
-            "price": float(item.price) if item.price else 0.0,
-            "stock": item.stock or 0,
-            "status": item.status or "unknown",
-            "is_active": item.is_active,
-            "updated_at": item.updated_at
-        } for item in items
-    ]
-
-# =========================================================
-# 2. DISPARADOR DE IMPORTACIÓN (Background Task)
-# =========================================================
 @router.post("/import/start")
-def start_import(
-    tenant_id: int,
-    channel_id: int,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
-):
-    # 1. Validar existencia del canal
-    channel = db.query(Channel).filter(
-        Channel.id == channel_id, 
-        Channel.tenant_id == tenant_id
-    ).first()
-    
-    if not channel:
-        raise HTTPException(status_code=404, detail="Canal no encontrado")
-
-    # 2. Validar credenciales
-    auth = db.query(MercadoLibreAuth).filter(
-        MercadoLibreAuth.channel_id == channel_id
-    ).first()
-
+def start_import(tenant_id: int, channel_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    # 1. Validar que existe el canal y auth (Prevención de errores)
+    auth = db.query(MercadoLibreAuth).filter_by(channel_id=channel_id).first()
     if not auth:
-        raise HTTPException(status_code=401, detail="Cuenta no vinculada")
+        return {"status": "error", "message": "No hay credenciales para este canal."}
 
-    # 3. Crear registro de la corrida
+    # 2. Crear la corrida
     run = CatalogImportRun(
         tenant_id=tenant_id,
         channel_id=channel_id,
@@ -83,76 +25,25 @@ def start_import(
     db.commit()
     db.refresh(run)
 
-    # 4. LANZAR TAREA (Solo pasamos IDs, no la sesión db)
-    background_tasks.add_task(
-        import_mercadolibre_items,
-        tenant_id=tenant_id,
-        channel_id=channel_id,
-        run_id=run.id
-    )
-
+    # 3. Disparar tarea pasando SOLO IDs
+    background_tasks.add_task(import_mercadolibre_items, tenant_id, channel_id, run.id)
+    
     return {"status": "import_started", "run_id": run.id}
 
-# =========================================================
-# 3. MONITOREO DE ESTADO (Evita el Error 500)
-# =========================================================
 @router.get("/import/latest")
 def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get_db)):
-    """
-    Retorna la última corrida. Versión blindada contra Error 500.
-    """
     run = db.query(CatalogImportRun).filter(
         CatalogImportRun.tenant_id == tenant_id,
         CatalogImportRun.channel_id == channel_id
-    ).order_by(CatalogImportRun.started_at.desc()).first()
+    ).order_by(CatalogImportRun.id.desc()).first()
     
     if not run:
-        return {"status": "none", "message": "No hay importaciones previas."}
+        return {"status": "none"}
     
-    # IMPORTANTE: Extraemos los valores manualmente para que FastAPI no explote
+    # Retorno manual para evitar el error 500 de sesión cerrada
     return {
-        "run_id": int(run.id),
-        "status": str(run.status),
-        "message": str(run.error) if run.error else "Sin detalles adicionales.",
-        "started_at": run.started_at.isoformat() if run.started_at else None,
-        "finished_at": run.finished_at.isoformat() if run.finished_at else None
+        "run_id": run.id,
+        "status": run.status,
+        "message": run.error or "Sin detalles",
+        "started_at": run.started_at.isoformat() if run.started_at else None
     }
-
-@router.get("/debug/ml-api-direct")
-def debug_ml_api_direct(
-    tenant_id: int, 
-    channel_id: int, 
-    db: Session = Depends(get_db)
-):
-    """
-    Este endpoint NO mira Supabase. 
-    Le pregunta directamente a Mercado Libre qué ve para este usuario.
-    """
-    from .service import get_ml_client
-    
-    try:
-        # 1. Intentar conectar
-        client = get_ml_client(db, channel_id=channel_id, tenant_id=tenant_id)
-        
-        # 2. Obtener mi propio ID de usuario de ML
-        me = client.get_current_user()
-        seller_id = me.get("id")
-        
-        # 3. Pedir los IDs de las publicaciones directamente a ML
-        # Usamos el mismo método que usa el importer
-        search_res = client.get_item_ids(seller_id, limit=10, offset=0)
-        
-        return {
-            "conexion_ml": "OK",
-            "seller_id_encontrado": seller_id,
-            "nickname": me.get("nickname"),
-            "total_en_mercado_libre": search_res.get("paging", {}).get("total", 0),
-            "ejemplos_ids_ml": search_res.get("results", []),
-            "raw_response_paging": search_res.get("paging")
-        }
-    except Exception as e:
-        return {
-            "status": "ERROR_DIRECTO_ML",
-            "detalle": str(e),
-            "ayuda": "Si ves un error 401 o 'invalid_token', el problema es el acceso."
-        }
