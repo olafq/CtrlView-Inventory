@@ -55,9 +55,6 @@ def start_import(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """
-    Crea un registro en CatalogImportRun y dispara el Importer.
-    """
     # 1. Validar existencia del canal
     channel = db.query(Channel).filter(
         Channel.id == channel_id, 
@@ -65,42 +62,36 @@ def start_import(
     ).first()
     
     if not channel:
-        raise HTTPException(status_code=404, detail="Canal no encontrado para este Tenant")
+        raise HTTPException(status_code=404, detail="Canal no encontrado")
 
-    # 2. Validar credenciales de ML
+    # 2. Validar credenciales
     auth = db.query(MercadoLibreAuth).filter(
         MercadoLibreAuth.channel_id == channel_id
     ).first()
 
     if not auth:
-        raise HTTPException(status_code=401, detail="El canal no tiene una cuenta de ML vinculada")
+        raise HTTPException(status_code=401, detail="Cuenta no vinculada")
 
-    # 3. Crear registro de la corrida (Status: pending)
+    # 3. Crear registro de la corrida
     run = CatalogImportRun(
         tenant_id=tenant_id,
         channel_id=channel_id,
         status="pending",
-        started_at=datetime.utcnow(),
-        error=None
+        started_at=datetime.utcnow()
     )
     db.add(run)
     db.commit()
     db.refresh(run)
 
-    # 4. Lanzar tarea en segundo plano
-    # Pasamos los IDs en lugar de objetos complejos si es posible para evitar problemas de sesión
+    # 4. LANZAR TAREA (Solo pasamos IDs, no la sesión db)
     background_tasks.add_task(
         import_mercadolibre_items,
-        db=db,
-        auth=auth,
+        tenant_id=tenant_id,
+        channel_id=channel_id,
         run_id=run.id
     )
 
-    return {
-        "status": "import_started", 
-        "run_id": run.id,
-        "message": "La sincronización se está ejecutando en segundo plano."
-    }
+    return {"status": "import_started", "run_id": run.id}
 
 # =========================================================
 # 3. MONITOREO DE ESTADO (Evita el Error 500)
