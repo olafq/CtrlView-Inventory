@@ -32,18 +32,22 @@ def start_import(tenant_id: int, channel_id: int, background_tasks: BackgroundTa
 
 @router.get("/import/latest")
 def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get_db)):
-    run = db.query(CatalogImportRun).filter(
-        CatalogImportRun.tenant_id == tenant_id,
-        CatalogImportRun.channel_id == channel_id
-    ).order_by(CatalogImportRun.id.desc()).first()
-    
-    if not run:
-        return {"status": "none"}
-    
-    # Retorno manual para evitar el error 500 de sesión cerrada
-    return {
-        "run_id": run.id,
-        "status": run.status,
-        "message": run.error or "Sin detalles",
-        "started_at": run.started_at.isoformat() if run.started_at else None
-    }
+    try:
+        # Buscamos la última corrida para este canal
+        run = db.query(CatalogImportRun).filter(
+            CatalogImportRun.tenant_id == tenant_id,
+            CatalogImportRun.channel_id == channel_id
+        ).order_by(CatalogImportRun.id.desc()).first()
+        
+        if not run:
+            return {"status": "none", "message": "No se han iniciado importaciones."}
+        
+        # IMPORTANTE: Convertimos a un diccionario simple para evitar el Error 500
+        return {
+            "run_id": int(run.id),
+            "status": str(run.status),
+            "message": str(run.error) if run.error else "Sincronizando...",
+            "started_at": run.started_at.isoformat() if run.started_at else None
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"Error interno: {str(e)}"}
