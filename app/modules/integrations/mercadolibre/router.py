@@ -117,3 +117,42 @@ def get_latest_import(tenant_id: int, channel_id: int, db: Session = Depends(get
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None
     }
+
+@router.get("/debug/ml-api-direct")
+def debug_ml_api_direct(
+    tenant_id: int, 
+    channel_id: int, 
+    db: Session = Depends(get_db)
+):
+    """
+    Este endpoint NO mira Supabase. 
+    Le pregunta directamente a Mercado Libre qué ve para este usuario.
+    """
+    from .service import get_ml_client
+    
+    try:
+        # 1. Intentar conectar
+        client = get_ml_client(db, channel_id=channel_id, tenant_id=tenant_id)
+        
+        # 2. Obtener mi propio ID de usuario de ML
+        me = client.get_current_user()
+        seller_id = me.get("id")
+        
+        # 3. Pedir los IDs de las publicaciones directamente a ML
+        # Usamos el mismo método que usa el importer
+        search_res = client.get_item_ids(seller_id, limit=10, offset=0)
+        
+        return {
+            "conexion_ml": "OK",
+            "seller_id_encontrado": seller_id,
+            "nickname": me.get("nickname"),
+            "total_en_mercado_libre": search_res.get("paging", {}).get("total", 0),
+            "ejemplos_ids_ml": search_res.get("results", []),
+            "raw_response_paging": search_res.get("paging")
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR_DIRECTO_ML",
+            "detalle": str(e),
+            "ayuda": "Si ves un error 401 o 'invalid_token', el problema es el acceso."
+        }
