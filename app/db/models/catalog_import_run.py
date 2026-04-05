@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, DateTime, String, ForeignKey
+from sqlalchemy import Column, Integer, DateTime, String, ForeignKey, Text # Importá Text
 from datetime import datetime
 from sqlalchemy.orm import relationship
 
@@ -26,6 +26,9 @@ class CatalogImportRun(Base):
     status = Column(String, nullable=False, default="pending")
     started_at = Column(DateTime, default=datetime.utcnow)
     finished_at = Column(DateTime, nullable=True)
+    
+    # ESTA ES LA COLUMNA QUE FALTA:
+    error = Column(Text, nullable=True) 
 
     tenant = relationship("Tenant")
     channel = relationship("Channel")
