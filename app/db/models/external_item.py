@@ -29,7 +29,7 @@ class ExternalItem(Base):
     product_id = Column(
         Integer,
         ForeignKey("products.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
 
