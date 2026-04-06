@@ -79,13 +79,12 @@ async def callback(
         db.commit()
         db.refresh(new_run)
 
-        # 4. DISPARAMOS LA TAREA EN SEGUNDO PLANO (MODO GRATUITO)
-        # Esto envía la redirección al usuario PRIMERO y luego sigue trabajando.
-        # ml_user_id corregido según tu esquema de DB.
+       # 4. DISPARAMOS LA TAREA EN SEGUNDO PLANO
+        # Pasamos solo IDs para que el importador abra su propia sesión db
         background_tasks.add_task(
             import_mercadolibre_items,
-            db=db,
-            auth=auth_info,
+            tenant_id=tenant_id,
+            channel_id=channel_id,
             run_id=new_run.id
         )
 
