@@ -4,8 +4,10 @@ from app.db.dependencies import get_db
 from app.db.models import CatalogImportRun, Channel, MercadoLibreAuth
 from .importer import import_mercadolibre_items
 from datetime import datetime
+from app.modules.integrations.mercadolibre.router_api import router as api_router
 
 router = APIRouter(prefix="/integrations/mercadolibre", tags=["MercadoLibre"])
+router.include_router(api_router)
 
 @router.post("/import/start")
 def start_import(tenant_id: int, channel_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
