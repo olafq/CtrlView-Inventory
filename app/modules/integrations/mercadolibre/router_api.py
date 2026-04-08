@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 import requests
 
@@ -24,7 +24,7 @@ ML_API_BASE = "https://api.mercadolibre.com"
 @router.get("/me")
 def get_my_ml_account(
     channel_id: int,
-    tenant_id: int,  # Agregamos tenant_id para que sea seguro
+    tenant_id: int,
     db: Session = Depends(get_db),
 ):
     """
@@ -34,18 +34,15 @@ def get_my_ml_account(
     from app.modules.integrations.mercadolibre.service import get_ml_client
     
     try:
-        # 1. Obtenemos el cliente con esteroides (maneja el refresh solo)
-        # IMPORTANTE: Asegúrate de que el tenant_id coincida con tu usuario de prueba
+        # 1. Obtenemos el cliente (maneja el refresh automáticamente)
         client = get_ml_client(db, channel_id=channel_id, tenant_id=tenant_id)
         
         # 2. Llamamos al método del cliente
-        # Si el token estaba vencido, el cliente hizo el refresh en la línea anterior
         user_data = client.get_current_user()
         
         return user_data
 
     except Exception as e:
-        # Si algo falla (ej: no hay conexión o el refresh_token también expiró)
         print(f"❌ Error en /me: {str(e)}")
         raise HTTPException(
             status_code=400, 
@@ -54,72 +51,52 @@ def get_my_ml_account(
 
 
 # =========================================================
-# LISTAR ITEMS DEL VENDEDOR (API ML)
+# LISTAR ITEMS (HÍBRIDO: DB LOCAL CON FILTROS REALES)
 # =========================================================
 @router.get("/items")
 def list_my_items(
-    channel_id: int = 1,
+    tenant_id: int,
+    channel_id: int,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
 ):
     """
-    Lista los items del vendedor conectado desde MercadoLibre.
+    Lista los items de la base de datos local filtrando por tenant y canal.
+    Se eliminó el hardcoding de channel_id=1.
     """
-
-    token = get_valid_ml_access_token(db, channel_id)
-
-    auth = (
-        db.query(MercadoLibreAuth)
-        .filter(MercadoLibreAuth.channel_id == channel_id)
-        .first()
+    # Buscamos directamente en la tabla de items externos filtrando por los IDs que llegan del frontend
+    query = db.query(ExternalItem).filter(
+        ExternalItem.tenant_id == tenant_id,
+        ExternalItem.channel_id == channel_id
     )
 
-    if not auth or not auth.ml_user_id:
-        raise HTTPException(
-            status_code=400,
-            detail="MercadoLibre not connected for this channel",
-        )
+    items = query.limit(limit).offset(offset).all()
 
-    headers = {
-        "Authorization": f"Bearer {token}",
-    }
-
-    SITE_ID = "MLA"
-
-    r = requests.get(
-        f"{ML_API_BASE}/sites/{SITE_ID}/search",
-        headers=headers,
-        params={
-            "seller_id": auth.ml_user_id,
-            "limit": limit,
-            "offset": offset,
-        },
-        timeout=10,
-    )
-
-    if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.text)
-
-    data = r.json()
-
-    return {
-        "user_id": auth.ml_user_id,
-        "paging": data.get("paging"),
-        "results": data.get("results"),
-    }
+    return [
+        {
+            "id": i.id,
+            "external_item_id": i.external_item_id,
+            "external_sku": i.external_sku,
+            "price": float(i.price) if i.price else 0.0,
+            "stock": i.stock,
+            "status": i.status,
+            "tenant_id": i.tenant_id,
+            "channel_id": i.channel_id
+        }
+        for i in items
+    ]
 
 
 @router.get("/items/{item_id}")
 def get_item_detail(
     item_id: str,
-    channel_id: int = 1,
+    channel_id: int,
     db: Session = Depends(get_db),
 ):
     """
-    Devuelve el detalle completo de un item de MercadoLibre.
+    Devuelve el detalle completo de un item directamente desde la API de MercadoLibre.
     """
-
     token = get_valid_ml_access_token(db, channel_id)
 
     headers = {
@@ -145,12 +122,14 @@ def get_item_detail(
 # 📦 PRODUCTS (DB LOCAL)
 # =========================================================
 @router.get("/products")
-def list_products(db: Session = Depends(get_db)):
+def list_products(
+    tenant_id: int, 
+    db: Session = Depends(get_db)
+):
     """
-    Lista todos los products guardados en la base local.
+    Lista todos los productos maestros de un tenant específico.
     """
-
-    products = db.query(Product).all()
+    products = db.query(Product).filter(Product.tenant_id == tenant_id).all()
 
     return [
         {
@@ -167,14 +146,24 @@ def list_products(db: Session = Depends(get_db)):
 
 
 # =========================================================
-# 🔗 EXTERNAL ITEMS (DB LOCAL)
+# 🔗 EXTERNAL ITEMS (VISTA DETALLADA SIN BLOQUEO DE NULLS)
 # =========================================================
 @router.get("/external-items")
-def list_external_items(db: Session = Depends(get_db)):
-
+def list_external_items(
+    tenant_id: int,
+    channel_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Lista items externos permitiendo product_id NULL (outer join implícito).
+    """
+    # No usamos .join(Product) de forma obligatoria porque eliminaría los items con product_id NULL
     items = (
         db.query(ExternalItem)
-        .join(Product)
+        .filter(
+            ExternalItem.tenant_id == tenant_id,
+            ExternalItem.channel_id == channel_id
+        )
         .all()
     )
 
@@ -182,11 +171,11 @@ def list_external_items(db: Session = Depends(get_db)):
         {
             "id": i.id,
             "product_id": i.product_id,
-            "product_name": i.product.name,   # 👈 NUEVO
+            "product_name": i.product.name if i.product else "SIN VINCULAR",
             "channel_id": i.channel_id,
             "external_item_id": i.external_item_id,
             "external_sku": i.external_sku,
-            "price": float(i.price) if i.price else None,
+            "price": float(i.price) if i.price else 0.0,
             "stock": i.stock,
             "status": i.status,
             "created_at": i.created_at,
