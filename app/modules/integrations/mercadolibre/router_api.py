@@ -23,8 +23,8 @@ ML_API_BASE = "https://api.mercadolibre.com"
 # =========================================================
 @router.get("/me")
 def get_my_ml_account(
-    channel_id: int = 1,
-    tenant_id: int = 1,  # Agregamos tenant_id para que sea seguro
+    channel_id: int,
+    tenant_id: int,  # Agregamos tenant_id para que sea seguro
     db: Session = Depends(get_db),
 ):
     """
