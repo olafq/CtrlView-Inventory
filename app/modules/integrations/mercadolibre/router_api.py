@@ -11,7 +11,7 @@ from app.modules.integrations.mercadolibre.service import (
 )
 
 router = APIRouter(
-    prefix="/integrations/mercadolibre",
+    prefix="",
     tags=["MercadoLibre API"],
 )
 
