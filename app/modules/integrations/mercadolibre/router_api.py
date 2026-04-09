@@ -49,45 +49,6 @@ def get_my_ml_account(
             detail=f"Error al obtener cuenta de Mercado Libre: {str(e)}"
         )
 
-
-# =========================================================
-# LISTAR ITEMS (HÍBRIDO: DB LOCAL CON FILTROS REALES)
-# =========================================================
-@router.get("/items")
-def list_my_items(
-    tenant_id: int,
-    channel_id: int,
-    limit: int = 50,
-    offset: int = 0,
-    db: Session = Depends(get_db),
-):
-    """
-    Lista los items de la base de datos local filtrando por tenant y canal.
-    Se eliminó el hardcoding de channel_id=1.
-    """
-    # Buscamos directamente en la tabla de items externos filtrando por los IDs que llegan del frontend
-    query = db.query(ExternalItem).filter(
-        ExternalItem.tenant_id == tenant_id,
-        ExternalItem.channel_id == channel_id
-    )
-
-    items = query.limit(limit).offset(offset).all()
-
-    return [
-        {
-            "id": i.id,
-            "external_item_id": i.external_item_id,
-            "external_sku": i.external_sku,
-            "price": float(i.price) if i.price else 0.0,
-            "stock": i.stock,
-            "status": i.status,
-            "tenant_id": i.tenant_id,
-            "channel_id": i.channel_id
-        }
-        for i in items
-    ]
-
-
 @router.get("/items/{item_id}")
 def get_item_detail(
     item_id: str,
@@ -146,6 +107,44 @@ def list_products(
 
 
 # =========================================================
+# LISTAR ITEMS (HÍBRIDO: DB LOCAL CON FILTROS REALES)
+# =========================================================
+@router.get("/items")
+def list_my_items(
+    tenant_id: int,
+    channel_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """
+    Lista los items de la base de datos local filtrando por tenant y canal.
+    """
+    query = db.query(ExternalItem).filter(
+        ExternalItem.tenant_id == tenant_id,
+        ExternalItem.channel_id == channel_id
+    )
+
+    items = query.limit(limit).offset(offset).all()
+
+    return [
+        {
+            "id": i.id,
+            "external_item_id": i.external_item_id,
+            "external_sku": i.external_sku,
+            "external_title": i.external_title, # <--- AGREGADO: El nombre real de ML
+            "price": float(i.price) if i.price else 0.0,
+            "stock": i.stock,
+            "status": i.status,
+            "tenant_id": i.tenant_id,
+            "channel_id": i.channel_id
+        }
+        for i in items
+    ]
+
+# ... (get_item_detail y list_products se mantienen igual)
+
+# =========================================================
 # 🔗 EXTERNAL ITEMS (VISTA DETALLADA SIN BLOQUEO DE NULLS)
 # =========================================================
 @router.get("/external-items")
@@ -157,7 +156,6 @@ def list_external_items(
     """
     Lista items externos permitiendo product_id NULL (outer join implícito).
     """
-    # No usamos .join(Product) de forma obligatoria porque eliminaría los items con product_id NULL
     items = (
         db.query(ExternalItem)
         .filter(
@@ -175,6 +173,7 @@ def list_external_items(
             "channel_id": i.channel_id,
             "external_item_id": i.external_item_id,
             "external_sku": i.external_sku,
+            "external_title": i.external_title, # <--- AGREGADO: Para consistencia en ambas vistas
             "price": float(i.price) if i.price else 0.0,
             "stock": i.stock,
             "status": i.status,

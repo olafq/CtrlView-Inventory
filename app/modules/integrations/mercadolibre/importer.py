@@ -49,6 +49,7 @@ def import_mercadolibre_items(tenant_id: int, channel_id: int, run_id: int):
                 "tenant_id": tenant_id,
                 "channel_id": channel_id,
                 "external_item_id": ext_id,
+                "external_title": item_data.get("title"),
                 "external_sku": item_data.get("seller_custom_field") or ext_id,
                 "price": float(item_data.get("price") or 0.0),
                 "stock": item_data.get("available_quantity", 0),
