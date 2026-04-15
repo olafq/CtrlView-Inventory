@@ -515,3 +515,54 @@ def revert_stock_movements(db: Session, sale: Sale) -> Dict[str, int]:
         recalculate_product_stock(db, product)
 
     return {"movements_refunded": movements_refunded}
+
+def get_auth_by_ml_user_id(db: Session, ml_user_id: str) -> Optional[MercadoLibreAuth]:
+    # Buscamos la credencial para saber a qué Tenant pertenece la venta
+    return db.query(MercadoLibreAuth).filter(MercadoLibreAuth.ml_user_id == str(ml_user_id)).first()
+
+def fetch_ml_order_details(order_id: str, access_token: str) -> Dict[str, Any]:
+    url = f"https://api.mercadolibre.com/orders/{order_id}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        return response.json() if response.status_code == 200 else {}
+    except Exception:
+        return {}
+
+def update_or_create_webhook_sale(db: Session, order_data: dict, tenant_id: int, channel_id: int):
+    external_id = str(order_data.get("id"))
+    sale = db.query(Sale).filter(
+        Sale.external_order_id == external_id,
+        Sale.tenant_id == tenant_id
+    ).first()
+
+    if not sale:
+        sale = Sale(
+            tenant_id=tenant_id,
+            channel_id=channel_id,
+            external_order_id=external_id,
+            total_amount=order_data.get("total_amount"),
+            currency=order_data.get("currency_id"),
+            status=order_data.get("status"),
+            ml_last_updated=order_data.get("date_last_updated")
+        )
+        db.add(sale)
+    else:
+        sale.status = order_data.get("status")
+        sale.ml_last_updated = order_data.get("date_last_updated")
+
+    db.commit()
+
+def process_ml_notification(data: dict, db: Session):
+    resource = data.get("resource", "")
+    if "/orders/" not in resource:
+        return
+
+    order_id = resource.split("/")[-1]
+    auth_info = get_auth_by_ml_user_id(db, data.get("user_id"))
+
+    if auth_info:
+        order_data = fetch_ml_order_details(order_id, auth_info.access_token)
+        if order_data:
+            update_or_create_webhook_sale(db, order_data, auth_info.tenant_id, auth_info.channel_id)
+            print(f"✅ Venta {order_id} sincronizada automáticamente.")

@@ -23,7 +23,7 @@ from app.modules.imports.router import router as imports_router
 from app.modules.integrations.mercadolibre.router_oauth import router as ml_oauth_router
 from app.modules.integrations.mercadolibre.router import router as ml_router # <-- ESTE es el unificado
 from app.modules.integrations.mercadolibre.router_orders import router as ml_orders_router
-
+from app.api.Webhooks.mercadolibre import router as ml_webhook_router
 load_dotenv()
 
 @asynccontextmanager
@@ -103,3 +103,4 @@ app.include_router(imports_router)
 app.include_router(ml_oauth_router) # Maneja el login/vinculación
 app.include_router(ml_router)       # Maneja Items e Importación (El que arreglamos hoy)
 app.include_router(ml_orders_router) # Maneja ventas y pedidos
+app.include_router(ml_webhook_router)
